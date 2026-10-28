@@ -43,9 +43,7 @@
 #define __QRCODE_H_
 
 #ifndef __cplusplus
-typedef unsigned char bool;
-static const bool false = 0;
-static const bool true = 1;
+#include <stdbool.h>   /* was a bool typedef, which C23 compilers reject */
 #endif
 
 #include <stdint.h>

@@ -58,7 +58,9 @@ jobs:
           SK="$RUNNER_TEMP/esp"
           mkdir -p "$SK"
           cp *.ino *.h *.c "$SK/"
-          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default \
+          # Built with the Huge APP partition so a .bin is always produced; the
+          # size report below compares against the default 1.25 MB app slot.
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app --warnings default \
             --output-dir "$RUNNER_TEMP/out" "$SK" 2>&1 | tee "$RUNNER_TEMP/build.log"
           test "${PIPESTATUS[0]}" -eq 0
 
@@ -66,17 +68,27 @@ jobs:
         if: always()
         run: |
           LOG="$RUNNER_TEMP/build.log"
-          FLASH=$(grep -Eo 'Sketch uses [0-9]+ bytes \([0-9]+%\) of program storage space. Maximum is [0-9]+ bytes' "$LOG" || true)
-          RAM=$(grep -Eo 'Global variables use [0-9]+ bytes \([0-9]+%\) of dynamic memory[^.]*' "$LOG" || true)
+          USED=$(grep -Eo 'Sketch uses [0-9]+ bytes' "$LOG" | grep -Eo '[0-9]+' || true)
+          RAM=$(grep -Eo 'Global variables use [0-9]+ bytes' "$LOG" | grep -Eo '[0-9]+' || true)
+          DEFAULT=1310720   # default partition scheme: 1.25 MB app
+          HUGE=3145728      # Huge APP: 3 MB app
           {
             echo "### ESP32 core ${{ matrix.core }}"
             echo ""
-            echo "Board: ESP32 Dev Module, default partition scheme (1.25 MB app)."
-            echo ""
-            echo "- ${FLASH:-build failed, no size}"
-            echo "- ${RAM:-}"
+            if [ -n "$USED" ]; then
+              PCT=$((USED * 100 / DEFAULT))
+              if [ "$USED" -le "$DEFAULT" ]; then FIT="fits the default partition"; else FIT="**needs Partition Scheme: Huge APP** ($((USED - DEFAULT)) bytes over the default)"; fi
+              echo "| | bytes | of default 1.25 MB app | of Huge APP 3 MB |"
+              echo "|---|---|---|---|"
+              echo "| flash | $USED | $PCT% | $((USED * 100 / HUGE))% |"
+              echo "| static RAM | $RAM | | of 327,680 |"
+              echo ""
+              echo "Flash: $FIT. The uploaded .bin is built for Huge APP; flash it with that scheme."
+            else
+              echo "Build failed, no size."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "$FLASH"; echo "$RAM"
+          echo "flash=$USED ram=$RAM"
 
       - name: Upload firmware
         if: success()
@@ -85,5 +97,6 @@ jobs:
           name: bizbox-esp32-core-${{ matrix.core }}
           path: |
             ${{ runner.temp }}/out/*.bin
+            ${{ runner.temp }}/out/*.csv
             ${{ runner.temp }}/out/*.elf
           if-no-files-found: error
