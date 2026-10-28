@@ -522,3 +522,28 @@ void handleApiClear() {
   if (currentScreen == SCREEN_ORDERS) drawScreen();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
+
+// ==========================================
+// Routes
+// ==========================================
+void webBegin() {
+  formNonce = newApiToken();   // per-boot form nonce
+
+  // Web routes & REST API
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.on("/test", HTTP_GET, handleTest);
+  // REST API: every /api/* needs "Authorization: Bearer <token>" (see web.h)
+  server.on("/api/state", HTTP_GET, handleApiState);
+  server.on("/api/order", HTTP_POST, handleApiOrder);
+  server.on("/api/payment", HTTP_POST, handleApiPayment);
+  server.on("/api/test", HTTP_POST, handleApiTest);
+  server.on("/api/reset", HTTP_ANY, handleApiReset);   // POST from the dashboard, GET kept for old scripts
+  server.on("/api/clear", HTTP_ANY, handleApiClear);
+
+  // Captive Portal Detection Routes (for automatic popup on phone)
+  server.on("/hotspot-detect.html", HTTP_GET, handleCaptiveRedirect); // Apple iOS
+  server.on("/generate_204", HTTP_GET, handleCaptiveRedirect);        // Android
+  server.on("/ncsi.txt", HTTP_GET, handleCaptiveRedirect);            // Windows
+  server.onNotFound(handleCaptiveRedirect);
+}

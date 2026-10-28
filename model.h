@@ -66,6 +66,12 @@ struct Cfg {
   bool invertTouchY;
 } cfg;
 
+// App state shared by the loop-side modules
+bool portalMode = false;                // setup hotspot is up
+volatile bool pendingRefresh = false;   // settings saved: redraw + poll now
+uint32_t lastUserActivity = 0;          // last tap/swipe (kiosk auto-flip waits for idle)
+uint32_t lastCycleTick = 0;
+
 #define AP_NAME   "BizBox-Setup"
 #define MDNS_NAME "bizbox"
 #define FW_VERSION "3.0"
