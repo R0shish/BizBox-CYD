@@ -148,18 +148,39 @@ String formNonce;
 String sel(bool on) { return on ? " selected" : ""; }
 String chk(bool on) { return on ? " checked" : ""; }
 
-String pageHead(const String& title) {
-  String h = "<!doctype html><html lang=en><head><meta charset=utf-8>"
-             "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
-             "<meta name=theme-color content='#0D1F33'><title>" + esc(title) + "</title>";
+// Streams a page as HTTP chunks through a ~1 KB buffer, so a dashboard
+// load never needs one big String (the heap is fragmented after TLS).
+// CSS and JS go out straight from flash.
+class PageOut {
+ public:
+  explicit PageOut(int code = 200) {
+    buf_.reserve(1100);
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(code, "text/html; charset=utf-8", "");
+  }
+  ~PageOut() { flush(); server.sendContent(""); }   // empty chunk ends the response
+  PageOut& operator+=(const String& s) { buf_ += s; if (buf_.length() >= 1024) flush(); return *this; }
+  PageOut& operator+=(const char* s) { buf_ += s; if (buf_.length() >= 1024) flush(); return *this; }
+  void progmem(PGM_P p) { flush(); server.sendContent_P(p); }
+  void flush() { if (buf_.length()) { server.sendContent(buf_); buf_ = ""; } }
+
+ private:
+  String buf_;
+};
+
+void pageHead(PageOut& h, const String& title) {
+  h += "<!doctype html><html lang=en><head><meta charset=utf-8>"
+       "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
+       "<meta name=theme-color content='#0D1F33'><title>";
+  h += esc(title);
+  h += "</title>";
   if (!portalMode) {
     h += "<link rel=preconnect href=https://fonts.gstatic.com crossorigin>"
          "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap'>";
   }
   h += "<style>";
-  h += WEB_CSS;
+  h.progmem(WEB_CSS);
   h += "</style></head>";
-  return h;
 }
 
 String hourlyBars() {
@@ -193,9 +214,8 @@ void handleRoot() {
   uint32_t avg = totalTransactions ? todaySales / totalTransactions : 0;
   String ip = portalMode ? String("192.168.4.1") : WiFi.localIP().toString();
 
-  String h;
-  h.reserve(20000);
-  h += pageHead(name);
+  PageOut h;
+  pageHead(h, name);
   h += String("<body") + (portalMode ? " data-portal=1" : String(" data-token=") + cfg.apiToken) + "><div class=strip></div>";
 
   // Header
@@ -321,10 +341,8 @@ void handleRoot() {
        "<button class='btn ghost' onclick=\"return confirm('Make a new token? Scripts using the old one stop working.')\">Make a new token</button></div></form></section>";
 
   h += "</main><footer>27.7° N, 85.3° E · MADE IN KATHMANDU</footer><div id=toast class=toast></div><script>";
-  h += WEB_JS;
+  h.progmem(WEB_JS);
   h += "</script></body></html>";
-
-  server.send(200, "text/html; charset=utf-8", h);
 }
 
 void handleSave() {
@@ -374,20 +392,25 @@ void handleSave() {
 
   saveCfg();
 
-  String msg = pageHead("Saved");
-  msg += "<body><div class=strip></div><main class=wrap style='padding-top:48px'>"
-         "<div class=eyebrow style='color:var(--green)'>Saved</div>";
-  if (wifiChanged || portalMode) {
-    msg += "<h1>Joining " + esc(cfg.ssid) + ".</h1><p style='color:var(--muted)'>Switch your phone back to your normal Wi-Fi, "
-           "then open <a href='http://" MDNS_NAME ".local'>" MDNS_NAME ".local</a>. If that doesn't load, the IP is on the device's Setup screen.</p></main></body></html>";
-    server.send(200, "text/html; charset=utf-8", msg);
+  bool restart = wifiChanged || portalMode;
+  {
+    PageOut msg;
+    pageHead(msg, "Saved");
+    msg += "<body><div class=strip></div><main class=wrap style='padding-top:48px'>"
+           "<div class=eyebrow style='color:var(--green)'>Saved</div>";
+    if (restart) {
+      msg += "<h1>Joining " + esc(cfg.ssid) + ".</h1><p style='color:var(--muted)'>Switch your phone back to your normal Wi-Fi, "
+             "then open <a href='http://" MDNS_NAME ".local'>" MDNS_NAME ".local</a>. If that doesn't load, the IP is on the device's Setup screen.</p></main></body></html>";
+    } else {
+      msg += "<h1>Done.</h1><p style='color:var(--muted)'>The screen has updated.</p>"
+             "<a class=btn href='/' style='margin-top:24px'>Back to dashboard</a></main></body></html>";
+    }
+  }   // page sent
+  if (restart) {
     if (ordersDirty) saveOrdersNow();
     delay(1500);
     ESP.restart();
   } else {
-    msg += "<h1>Done.</h1><p style='color:var(--muted)'>The screen has updated.</p>"
-           "<a class=btn href='/' style='margin-top:24px'>Back to dashboard</a></main></body></html>";
-    server.send(200, "text/html; charset=utf-8", msg);
     pendingRefresh = true;
   }
 }
