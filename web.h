@@ -104,9 +104,23 @@ try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.p
 if(!document.body.dataset.portal){refresh();setInterval(refresh,5000)}
 )JS";
 
+// Admin PIN (HTTP Basic, user "admin"). Also enforced in setup mode: that
+// hotspot is open, and it comes up whenever Wi-Fi is down at boot.
+// 5 wrong PINs lock the dashboard for a minute.
 bool authed() {
-  if (portalMode || cfg.adminPin.isEmpty()) return true;
-  if (server.authenticate("admin", cfg.adminPin.c_str())) return true;
+  if (cfg.adminPin.isEmpty()) return true;
+  static uint8_t fails = 0;
+  static uint32_t lockedAt = 0;
+  if (lockedAt && millis() - lockedAt < 60000) {
+    server.send(429, "text/plain", "Too many wrong PINs. Try again in a minute.");
+    return false;
+  }
+  lockedAt = 0;
+  if (server.authenticate("admin", cfg.adminPin.c_str())) { fails = 0; return true; }
+  if (server.hasHeader("Authorization") && ++fails >= 5) {   // a wrong PIN, not just the first prompt
+    fails = 0;
+    lockedAt = millis() | 1;
+  }
   server.requestAuthentication();
   return false;
 }
@@ -265,7 +279,7 @@ void handleRoot() {
        "<option value=1" + sel(cfg.emailMode == 1) + ">Google Apps Script webhook</option>"
        "<option value=2" + sel(cfg.emailMode == 2) + ">Local API only</option></select>"
        "<label>Gmail address</label><input type=email name=guser value='" + esc(cfg.gmailUser) + "' placeholder='yourshop@gmail.com' autocomplete=off>"
-       "<label>App password</label><input type=password name=gpass value='" + esc(cfg.gmailPass) + "' placeholder='xxxx xxxx xxxx xxxx' autocomplete=off>"
+       "<label>App password</label><input type=password name=gpass placeholder='" + String(cfg.gmailPass.length() ? "Saved. Leave blank to keep it" : "xxxx xxxx xxxx xxxx") + "' autocomplete=new-password>"
        "<small>16 characters, made at <a href='https://myaccount.google.com/apppasswords' target=_blank>myaccount.google.com/apppasswords</a></small>"
        "<label>Search filter</label><input name=query value='" + esc(cfg.imapQuery) + "' placeholder='UNSEEN FROM \"esewa\"' class=mono>"
        "<small>Only emails whose subject reads like a payment (\"Rs 500 received\") are announced and marked read. Everything else stays unread.</small>"
@@ -278,7 +292,8 @@ void handleRoot() {
        "<div class=card><div class=eyebrow>01 <b>/ Wi-Fi</b></div><h2>Network.</h2>"
        "<label>Network name</label><input name=ssid value='" + esc(cfg.ssid) + "' autocapitalize=off autocorrect=off>"
        "<label>Password</label><input type=password name=pass placeholder='Leave blank to keep current'>"
-       "<label>Admin PIN (optional)</label><input type=password name=pin inputmode=numeric value='" + esc(cfg.adminPin) + "' placeholder='Protects this page'>"
+       "<label>Admin PIN (optional)</label><input type=password name=pin inputmode=numeric autocomplete=new-password placeholder='" + String(cfg.adminPin.length() ? "Set. Leave blank to keep it" : "Protects this page") + "'>"
+       + String(cfg.adminPin.length() ? "<label class=check><input type=checkbox name=pinclr value=1> Remove the PIN</label>" : "") +
        "<button class=btn>Apply</button></div>"
 
        "<div class=card><div class=eyebrow>02 <b>/ Sound + screen</b></div><h2>Feel.</h2>"
@@ -342,11 +357,13 @@ void handleSave() {
 
   if (server.hasArg("emode"))  cfg.emailMode = server.arg("emode").toInt();
   if (server.hasArg("guser"))  { cfg.gmailUser = server.arg("guser"); cfg.gmailUser.trim(); }
-  if (server.hasArg("gpass"))  { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }
+  // Secrets are never sent back to the browser, so blank means "keep"
+  if (server.arg("gpass").length()) { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }
   if (server.hasArg("query"))  { cfg.imapQuery = server.arg("query"); cfg.imapQuery.trim(); }
   if (server.hasArg("emode"))  cfg.verifyGoogle = server.hasArg("gtls");   // checkbox lives on the Gmail form
 
-  if (server.hasArg("pin"))    cfg.adminPin = server.arg("pin");
+  if (server.hasArg("pinclr")) cfg.adminPin = "";
+  else if (server.arg("pin").length()) cfg.adminPin = server.arg("pin");
   if (server.hasArg("rotate")) cfg.apiToken = newApiToken();
   // Touch checkboxes only exist on the touch form, which is the one with the volume slider
   if (server.hasArg("vol")) {
