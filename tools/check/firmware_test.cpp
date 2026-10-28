@@ -55,8 +55,16 @@ static void sales_tests() {
   EXPECT(totalTransactions == 3, "count");
 }
 
+static void token_tests() {
+  String first = cfg.apiToken;
+  EXPECT(first.length() == 32, "token made on first boot");
+  loadCfg();                                   // a reboot
+  EXPECT(cfg.apiToken == first, "token survives a reboot: %s vs %s", cfg.apiToken.c_str(), first.c_str());
+}
+
 int main() {
   setup();
+  token_tests();
   orders_tests();
   sales_tests();
   printf("firmware tests: %d passed, %d failed\n", passes, fails);

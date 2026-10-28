@@ -247,9 +247,9 @@ void loadCfg() {
   salesDay         = prefs.getInt("sday", -1);
   lastPayHM        = prefs.getString("lastpay", "");
   if (prefs.getBytesLength("hourly") == sizeof(hourly)) prefs.getBytes("hourly", hourly, sizeof(hourly));
+  cfg.apiToken     = prefs.getString("apitok", "");
   prefs.end();
 
-  cfg.apiToken     = prefs.getString("apitok", "");
   if (cfg.apiToken.length() != 32) {
     cfg.apiToken = newApiToken();
     prefs.begin("cydbiz", false);
