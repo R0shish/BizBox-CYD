@@ -8,6 +8,7 @@
 
 ImapState imapState = {0, 0};   // where the IMAP reader is in the mailbox (NVS guidv/guid)
 String appsScriptSince = "0";   // Apps Script cursor (NVS since)
+String connectCursor = "";      // Connect pull cursor (NVS cxCur)
 
 // 128-bit random token for the REST API (hardware RNG; Wi-Fi/BT is up or the
 // bootloader seeded it, either way it's good entropy on the ESP32)
@@ -54,12 +55,47 @@ void loadCfg() {
   lastPayHM        = prefs.getString("lastpay", "");
   if (prefs.getBytesLength("hourly") == sizeof(hourly)) prefs.getBytes("hourly", hourly, sizeof(hourly));
   cfg.apiToken     = prefs.getString("apitok", "");
+  cfg.cxHook       = prefs.getString("cxHook", "");
+  cfg.cxHeader     = prefs.getString("cxHdr", "");
+  cfg.cxSecret     = prefs.getString("cxSec", "");
+  cfg.cxTpl        = prefs.getString("cxTpl", "");
+  cfg.cxEvents     = prefs.getInt("cxEvt", 7);
+  cfg.cxPull       = prefs.getString("cxPull", "");
+  cfg.cxEvery      = prefs.getInt("cxEvery", 15);
+  cfg.cxPOrders    = prefs.getString("cxPOrd", "orders");
+  cfg.cxPId        = prefs.getString("cxPId", "id");
+  cfg.cxPTitle     = prefs.getString("cxPTit", "title");
+  cfg.cxPAmount    = prefs.getString("cxPAmt", "amount");
+  cfg.cxPStatus    = prefs.getString("cxPSt", "status");
+  cfg.cxPCommands  = prefs.getString("cxPCmd", "commands");
+  cfg.cxPCursor    = prefs.getString("cxPCur", "cursor");
+  cfg.cxMap        = prefs.getString("cxMap", CX_DEFAULT_MAP);
+  cfg.cxSigned     = prefs.getBool("cxSign", false);
+  connectCursor    = prefs.getString("cxCur", "");
   prefs.end();
+  cfg.cxEvery      = constrain(cfg.cxEvery, 5, 3600);
+  cfg.cxEvents    &= 7;
 
   if (cfg.apiToken.length() != 32) {
     cfg.apiToken = newApiToken();
     prefs.begin("cydbiz", false);
     prefs.putString("apitok", cfg.apiToken);
+  prefs.putString("cxHook", cfg.cxHook);
+  prefs.putString("cxHdr", cfg.cxHeader);
+  prefs.putString("cxSec", cfg.cxSecret);
+  prefs.putString("cxTpl", cfg.cxTpl);
+  prefs.putInt("cxEvt", cfg.cxEvents);
+  prefs.putString("cxPull", cfg.cxPull);
+  prefs.putInt("cxEvery", cfg.cxEvery);
+  prefs.putString("cxPOrd", cfg.cxPOrders);
+  prefs.putString("cxPId", cfg.cxPId);
+  prefs.putString("cxPTit", cfg.cxPTitle);
+  prefs.putString("cxPAmt", cfg.cxPAmount);
+  prefs.putString("cxPSt", cfg.cxPStatus);
+  prefs.putString("cxPCmd", cfg.cxPCommands);
+  prefs.putString("cxPCur", cfg.cxPCursor);
+  prefs.putString("cxMap", cfg.cxMap);
+  prefs.putBool("cxSign", cfg.cxSigned);
     prefs.end();
   }
 
@@ -94,6 +130,22 @@ void saveCfg() {
   prefs.putString("pass", cfg.pass);
   prefs.putString("pin", cfg.adminPin);
   prefs.putString("apitok", cfg.apiToken);
+  prefs.putString("cxHook", cfg.cxHook);
+  prefs.putString("cxHdr", cfg.cxHeader);
+  prefs.putString("cxSec", cfg.cxSecret);
+  prefs.putString("cxTpl", cfg.cxTpl);
+  prefs.putInt("cxEvt", cfg.cxEvents);
+  prefs.putString("cxPull", cfg.cxPull);
+  prefs.putInt("cxEvery", cfg.cxEvery);
+  prefs.putString("cxPOrd", cfg.cxPOrders);
+  prefs.putString("cxPId", cfg.cxPId);
+  prefs.putString("cxPTit", cfg.cxPTitle);
+  prefs.putString("cxPAmt", cfg.cxPAmount);
+  prefs.putString("cxPSt", cfg.cxPStatus);
+  prefs.putString("cxPCmd", cfg.cxPCommands);
+  prefs.putString("cxPCur", cfg.cxPCursor);
+  prefs.putString("cxMap", cfg.cxMap);
+  prefs.putBool("cxSign", cfg.cxSigned);
   prefs.putBool("tswap", cfg.swapTouch);
   prefs.putBool("tinvx", cfg.invertTouchX);
   prefs.putBool("tinvy", cfg.invertTouchY);

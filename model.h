@@ -61,6 +61,17 @@ struct Cfg {
   String pass;
   String adminPin;      // PIN protection
   String apiToken;      // Bearer token for /api/* (32 hex chars, made on first boot)
+  // Connect (docs/CONNECT.md)
+  String cxHook;        // webhook URL
+  String cxHeader;      // extra header "Name: value" (secret)
+  String cxSecret;      // HMAC signing secret
+  String cxTpl;         // webhook body template, empty = default JSON
+  int cxEvents;         // bitmask: 1 payment.received, 2 order.created, 4 order.status_changed
+  String cxPull;        // pull URL
+  int cxEvery;          // pull interval, seconds
+  String cxPOrders, cxPId, cxPTitle, cxPAmount, cxPStatus, cxPCommands, cxPCursor;   // JSON paths
+  String cxMap;         // status map
+  bool cxSigned;        // reject unsigned pull replies
   bool swapTouch;
   bool invertTouchX;
   bool invertTouchY;
@@ -71,6 +82,13 @@ bool portalMode = false;                // setup hotspot is up
 volatile bool pendingRefresh = false;   // settings saved: redraw + poll now
 uint32_t lastUserActivity = 0;          // last tap/swipe (kiosk auto-flip waits for idle)
 uint32_t lastCycleTick = 0;
+
+// Connect defaults (docs/CONNECT.md)
+const uint8_t CX_EVT_PAYMENT = 1, CX_EVT_ORDER = 2, CX_EVT_STATUS = 4;
+const char* const CX_DEFAULT_MAP =
+    "NEW=new,pending,received,placed; PREP=preparing,processing,in_progress,printing; "
+    "READY=ready,ready_for_pickup,done_printing; PAID=paid,completed,delivered,picked_up; "
+    "REMOVE=cancelled,canceled,deleted,archived";
 
 #define AP_NAME   "BizBox-Setup"
 #define MDNS_NAME "bizbox"

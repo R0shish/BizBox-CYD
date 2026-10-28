@@ -89,11 +89,17 @@ function grp(n){n=String(Math.round(n));if(n.length<=3)return n;let t=n.slice(-3
 function amt(n){const r=Math.floor(n),p=Math.round((n-r)*100);return grp(r)+(p?'.'+String(p).padStart(2,'0'):'')}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function addOrder(){const t=$('#p_item').value.trim(),a=parseInt($('#p_amt').value)||0;if(!t){toast('ADD AN ITEM NAME');return}
-api('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW'})})
+api('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW',source:'dashboard'})})
 .then(()=>{$('#p_item').value='';$('#p_amt').value='';toast('SENT TO SCREEN');refresh()})}
 function act(u,m){api(u,{method:'POST'}).then(()=>{toast(m);refresh()})}
 function presetQR(v){const f=$('#qr_input');const p={upi:'upi://pay?pa=yourstore@upi&pn=Store&cu=INR',paypal:'https://paypal.me/yourbusiness'};if(p[v])f.value=p[v];}
+function preset(i){const p=PRESETS[i];if(!p)return;const m={pull_orders:'cxpord',pull_id:'cxpid',pull_title:'cxptit',pull_amount:'cxpamt',pull_status:'cxpst',pull_commands:'cxpcmd',pull_cursor:'cxpcur',status_map:'cxmap'};
+for(const k in m)if(p[k]!==undefined)document.querySelector('[name='+m[k]+']').value=p[k];
+if(p.events!==undefined)[1,2,4].forEach(b=>{document.querySelector('[name=cxe'+b+']').checked=!!(p.events&b)});toast('PRESET FILLED. SAVE TO KEEP')}
+function cxTest(){api('/api/connect/test',{method:'POST'}).then(r=>r.json()).then(j=>{toast(j.error?j.error.toUpperCase():'TEST EVENT QUEUED');setTimeout(refresh,3000)})}
+function cxPullNow(){api('/api/connect/pull',{method:'POST'}).then(r=>r.json()).then(j=>{toast(j.error?j.error.toUpperCase():'PULLING');setTimeout(refresh,3000)})}
 function render(s){
+if(s.connect){$('#cxhook').textContent=s.connect.hook;$('#cxpull').textContent=s.connect.pull;$('#cxq').textContent=s.connect.queue;$('#cxcur').value=s.connect.cursor}
 $('#sales').textContent=grp(s.sales);$('#tx').textContent=s.tx;$('#avg').textContent=s.cur+' '+grp(s.avg);$('#last').textContent=s.last||'--:--';
 $('#clock').textContent=s.time;$('#imap').textContent=s.imap;$('#ndot').className='dot'+(s.net==3?' err':s.net==2?' sync':'');
 const op=$('#openpill');op.className='pill '+(s.open?'open':'closed');op.textContent=s.open?'Open':'Closed';
@@ -101,6 +107,7 @@ const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div 
 $('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
 function refresh(){api('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
+try{const sel=$('#cxpreset');PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;sel.appendChild(o)})}catch(e){}
 if(!document.body.dataset.portal){refresh();setInterval(()=>{if(!document.hidden)refresh()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()})}
 )JS";
 
@@ -208,6 +215,79 @@ String orderRows() {
   return r;
 }
 
+// Placeholder for a secret field: says whether one is stored, never shows it
+String secretHint(const String& v, const char* empty) {
+  return v.length() ? String("Saved. Leave blank to keep it") : String(empty);
+}
+
+String pathInput(const char* label, const char* name, const String& v) {
+  return String("<div><label>") + label + "</label><input name=" + name + " class=mono value='" + esc(v) +
+         "' autocapitalize=off autocorrect=off></div>";
+}
+
+// 05 Connect: webhooks out, pull in (docs/CONNECT.md)
+void webConnectTab(PageOut& h, bool on) {
+  h += String("<section id=t-cx class='pane") + (on ? " on" : "") + "'>" + FORM_OPEN + "<input type=hidden name=cxform value=1>";
+  h += "<div class=card><div class=eyebrow>01 <b>/ Connect</b></div><h2>Your own system.</h2>"
+       "<small>Send payments and order changes to any management system, and pull orders and commands from it. "
+       "Payloads, signatures and examples: docs/CONNECT.md in the BizBox project.</small>"
+       "<label>Preset</label><select id=cxpreset onchange='preset(this.value)'><option value=''>Choose a preset</option></select>"
+       "<small>Fills the paths, status map and events. URLs and secrets stay as they are.</small></div>";
+
+  h += "<div class=card><div class=eyebrow>02 <b>/ Webhooks</b></div><h2>Out.</h2>"
+       "<label>Webhook URL</label><input name=cxhook class=mono autocapitalize=off autocorrect=off value='";
+  h += esc(cfg.cxHook);
+  h += "' placeholder='https://example.com/bizbox'>"
+       "<label>Extra header (optional)</label><input type=password name=cxhdr autocomplete=new-password class=mono placeholder='";
+  h += secretHint(cfg.cxHeader, "Authorization: Bearer abc123");
+  h += "'>";
+  if (cfg.cxHeader.length()) h += "<label class=check><input type=checkbox name=cxhdrclr value=1> Remove the header</label>";
+  h += "<label>Signing secret (optional)</label><input type=password name=cxsec autocomplete=new-password class=mono placeholder='";
+  h += secretHint(cfg.cxSecret, "Any long random string");
+  h += "'>";
+  if (cfg.cxSecret.length()) h += "<label class=check><input type=checkbox name=cxsecclr value=1> Remove the secret</label>";
+  h += "<small>Signs every webhook (X-BizBox-Signature, HMAC-SHA256) and checks signed pull replies.</small>"
+       "<label>Send</label>"
+       "<label class=check><input type=checkbox name=cxe1 value=1" + chk(cfg.cxEvents & CX_EVT_PAYMENT) + "> payment.received</label>"
+       "<label class=check><input type=checkbox name=cxe2 value=1" + chk(cfg.cxEvents & CX_EVT_ORDER) + "> order.created</label>"
+       "<label class=check><input type=checkbox name=cxe4 value=1" + chk(cfg.cxEvents & CX_EVT_STATUS) + "> order.status_changed</label>"
+       "<label>Body template (optional)</label><textarea name=cxtpl rows=4 maxlength=1000 placeholder='Empty: the default JSON body. Placeholders like {{amount}} {{note}} {{ext_id}} {{body}}'>";
+  h += esc(cfg.cxTpl);
+  h += "</textarea><div class=stat>LAST · <span id=cxhook>";
+  h += esc(cxHookStatus.get());
+  h += "</span> · <span id=cxq>" + String(connectQueued()) + "</span> QUEUED</div>"
+       "<div class=grid2><button class=btn>Save</button><button type=button class='btn ghost' onclick='cxTest()'>Send test event</button></div></div>";
+
+  h += "<div class=card><div class=eyebrow>03 <b>/ Pull</b></div><h2>In.</h2>"
+       "<label>Pull URL</label><input name=cxpull class=mono autocapitalize=off autocorrect=off value='";
+  h += esc(cfg.cxPull);
+  h += "' placeholder='https://example.com/bizbox/pull'>"
+       "<div class=grid2><div><label>Every (seconds)</label><input type=number name=cxevery min=5 max=3600 value='" + String(cfg.cxEvery) + "'></div>"
+       "<div><label>Cursor</label><input id=cxcur class=mono readonly value='";
+  h += esc(cxCursorText.get());
+  h += "'></div></div>"
+       "<label class=check><input type=checkbox name=cxcurclr value=1> Reset the cursor (read everything again)</label>"
+       "<label class=check><input type=checkbox name=cxsign value=1" + chk(cfg.cxSigned) + "> Require signed replies</label>"
+       "<small>Unsigned replies can still add orders, speak and switch screens. Announcing a payment always needs a signed reply.</small>"
+       "<div class=grid2>";
+  h += pathInput("Orders path", "cxpord", cfg.cxPOrders);
+  h += pathInput("Commands path", "cxpcmd", cfg.cxPCommands);
+  h += pathInput("Order ID", "cxpid", cfg.cxPId);
+  h += pathInput("Title", "cxptit", cfg.cxPTitle);
+  h += pathInput("Amount", "cxpamt", cfg.cxPAmount);
+  h += pathInput("Status", "cxpst", cfg.cxPStatus);
+  h += pathInput("Cursor path", "cxpcur", cfg.cxPCursor);
+  h += "</div><label>Status map</label><textarea name=cxmap rows=4 class=mono>";
+  h += esc(cfg.cxMap);
+  h += "</textarea><small>Your statuses to NEW / PREP / READY / PAID, or REMOVE to take an order off the screen.</small>"
+       "<div class=stat>LAST · <span id=cxpull>";
+  h += esc(cxPullStatus.get());
+  h += "</span></div><div class=grid2><button class=btn>Save</button><button type=button class='btn ghost' onclick='cxPullNow()'>Test pull</button></div></div>"
+       "</form><script>const PRESETS=";
+  h.progmem(CONNECT_PRESETS);
+  h += ";</script></section>";
+}
+
 void handleRoot() {
   if (!authed()) return;
   String name = shopName();
@@ -232,11 +312,11 @@ void handleRoot() {
   }
 
   // Tabs
-  const char* tabIds[5] = {"t-today", "t-qr", "t-brand", "t-gmail", "t-sys"};
-  const char* tabNames[5] = {"Today", "QR", "Brand", "Gmail", "System"};
-  int active = portalMode ? 4 : 0;
+  const char* tabIds[6] = {"t-today", "t-qr", "t-brand", "t-gmail", "t-cx", "t-sys"};
+  const char* tabNames[6] = {"Today", "QR", "Brand", "Gmail", "Connect", "System"};
+  int active = portalMode ? 5 : 0;
   h += "<nav class=tabs><div class=wrap>";
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     h += "<button class='tab" + String(i == active ? " on" : "") + "' data-t=" + tabIds[i] +
          " onclick=\"tab('" + tabIds[i] + "',this)\"><i>0" + String(i + 1) + "</i>" + tabNames[i] + "</button>";
   }
@@ -308,7 +388,9 @@ void handleRoot() {
        "<button class=btn>Save</button></div></form></section>";
 
   // 05 System
-  h += String("<section id=t-sys class='pane") + (active == 4 ? " on" : "") + "'>" + FORM_OPEN +
+  webConnectTab(h, active == 4);
+
+  h += String("<section id=t-sys class='pane") + (active == 5 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Wi-Fi</b></div><h2>Network.</h2>"
        "<label>Network name</label><input name=ssid value='" + esc(cfg.ssid) + "' autocapitalize=off autocorrect=off>"
        "<label>Password</label><input type=password name=pass placeholder='Leave blank to keep current'>"
@@ -352,6 +434,7 @@ void handleSave() {
     return;
   }
   CfgLock lock;   // the network task reads these fields
+  cfgVersion++;
   String nssid = server.arg("ssid"), npass = server.arg("pass");
   bool wifiChanged = (nssid.length() && nssid != cfg.ssid) || npass.length();
   if (nssid.length()) cfg.ssid = nssid;
@@ -383,6 +466,27 @@ void handleSave() {
   if (server.hasArg("pinclr")) cfg.adminPin = "";
   else if (server.arg("pin").length()) cfg.adminPin = server.arg("pin");
   if (server.hasArg("rotate")) cfg.apiToken = newApiToken();
+
+  if (server.hasArg("cxform")) {     // Connect tab
+    cfg.cxHook = server.arg("cxhook"); cfg.cxHook.trim();
+    String hdr = server.arg("cxhdr"); hdr.trim();
+    if (server.hasArg("cxhdrclr")) cfg.cxHeader = "";
+    else if (hdr.length() && hdr.indexOf('\n') < 0 && hdr.indexOf('\r') < 0) cfg.cxHeader = hdr;
+    if (server.hasArg("cxsecclr")) cfg.cxSecret = "";
+    else if (server.arg("cxsec").length()) cfg.cxSecret = server.arg("cxsec");
+    cfg.cxEvents = (server.hasArg("cxe1") ? CX_EVT_PAYMENT : 0) | (server.hasArg("cxe2") ? CX_EVT_ORDER : 0) |
+                   (server.hasArg("cxe4") ? CX_EVT_STATUS : 0);
+    cfg.cxTpl = utf8Cut(server.arg("cxtpl"), 1000);
+    cfg.cxPull = server.arg("cxpull"); cfg.cxPull.trim();
+    cfg.cxEvery = constrain((int)server.arg("cxevery").toInt(), 5, 3600);
+    cfg.cxSigned = server.hasArg("cxsign");
+    String* paths[] = {&cfg.cxPOrders, &cfg.cxPCommands, &cfg.cxPId, &cfg.cxPTitle, &cfg.cxPAmount, &cfg.cxPStatus, &cfg.cxPCursor};
+    const char* names[] = {"cxpord", "cxpcmd", "cxpid", "cxptit", "cxpamt", "cxpst", "cxpcur"};
+    for (int i = 0; i < 7; i++) { *paths[i] = server.arg(names[i]); paths[i]->trim(); }
+    cfg.cxMap = server.arg("cxmap");
+    if (server.hasArg("cxcurclr")) cxCursorReset = true;
+    cxPullNow = true;
+  }
   // Touch checkboxes only exist on the touch form, which is the one with the volume slider
   if (server.hasArg("vol")) {
     cfg.swapTouch    = server.hasArg("tswap");
@@ -470,6 +574,11 @@ void handleApiState() {
   doc["hour"] = tv ? t.tm_hour : -1;
   doc["imap"] = netStatus();
   doc["net"] = (int)netState;
+  JsonObject cx = doc["connect"].to<JsonObject>();
+  cx["hook"] = cxHookStatus.get();
+  cx["pull"] = cxPullStatus.get();
+  cx["queue"] = connectQueued();
+  cx["cursor"] = cxCursorText.get();
   JsonArray hr = doc["hourly"].to<JsonArray>();
   for (int i = 0; i < 24; i++) hr.add(hourly[i]);
   JsonArray os = doc["orders"].to<JsonArray>();
@@ -503,7 +612,8 @@ void handleApiOrder() {
     apiError(400, "status must be NEW, PREP, READY or PAID");
     return;
   }
-  addOrder(utf8Cut(title, 40), amt, status);
+  OrderItem* o = addOrder(utf8Cut(title, 40), amt, status);
+  connectEmit("order.created", orderEvent(*o, doc["source"] == "dashboard" ? "dashboard" : "api"));
   server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
 }
 
@@ -515,10 +625,31 @@ void handleApiPayment() {
   if (!jsonMoney(doc["amount"], amt)) { apiError(400, "amount must be between 0 and 1 crore"); return; }
   String note = doc["note"] | "Instant Payment";
   note = utf8Cut(note, 40);
-  addOrder(note, amt, "PAID");
+  bookPayment(note, amt, note, "api");
   bool queued = queueAnnouncement(amt, note);
   // Answer now: the announcement plays from the loop, so callers never time out and retry
   server.send(200, "application/json", String("{\"status\":\"ok\",\"announced\":") + (queued ? "true" : "false") + "}");
+}
+
+void handleApiConnectTest() {
+  if (!apiAuthed()) return;
+  if (cfg.cxHook.isEmpty()) { apiError(400, "set a webhook URL first"); return; }
+  ConnectData d;
+  d.source = "test";
+  d.test = true;
+  d.paisa = 10000;
+  d.note = "Test";
+  d.title = "Test payment";
+  d.status = "PAID";
+  connectEmit("payment.received", d);
+  server.send(200, "application/json", "{\"status\":\"queued\"}");
+}
+
+void handleApiConnectPull() {
+  if (!apiAuthed()) return;
+  if (cfg.cxPull.isEmpty()) { apiError(400, "set a pull URL first"); return; }
+  cxPullNow = true;
+  server.send(200, "application/json", "{\"status\":\"pulling\"}");
 }
 
 void handleApiReset() {
@@ -558,6 +689,8 @@ void webBegin() {
   server.on("/api/order", HTTP_POST, handleApiOrder);
   server.on("/api/payment", HTTP_POST, handleApiPayment);
   server.on("/api/test", HTTP_POST, handleApiTest);
+  server.on("/api/connect/test", HTTP_POST, handleApiConnectTest);
+  server.on("/api/connect/pull", HTTP_POST, handleApiConnectPull);
   server.on("/api/reset", HTTP_ANY, handleApiReset);   // POST from the dashboard, GET kept for old scripts
   server.on("/api/clear", HTTP_ANY, handleApiClear);
 

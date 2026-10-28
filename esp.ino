@@ -11,6 +11,7 @@
 #include "qr_encode.h"   // ricmoo/QRCode, vendored (see file)
 #include <ESP8266SAM.h>
 #include <esp_system.h>
+#include <mbedtls/md.h>   // HMAC-SHA256 for Connect webhooks
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
   #include <esp_random.h>
 #endif
@@ -32,11 +33,14 @@ Preferences prefs;
 #include "ui.h"        // everything drawn on the screen
 #include "speaker.h"   // SAM voice -> DAC on GPIO26
 #include "imap.h"      // Gmail reader
-#include "net.h"       // network task: polling (and webhooks)
+#include "net.h"       // network task: events, payment polling
 #include "storage.h"   // NVS
+#include "connect.h"   // Connect: webhooks out, polling in
+#include "nettask.h"   // the network task's loop
 #include "app.h"       // orders, sales, announcements, screens
 #include "input.h"     // touch + BOOT button
 #include "wifi.h"      // joining Wi-Fi, setup hotspot
+#include "presets.h"   // Connect presets (vendor presets go here)
 #include "web.h"       // phone dashboard + REST API
 
 // ==========================================
@@ -75,7 +79,7 @@ void setup() {
     netState = NET_OK;
     drawScreen();
   }
-  netBegin(imapState, appsScriptSince);
+  netBegin(imapState, appsScriptSince, connectCursor);
 
   server.begin();
   lastUserActivity = millis();

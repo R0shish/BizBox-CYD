@@ -507,3 +507,86 @@ struct ImapFetchParser {
     else lastHdr = 0;
   }
 };
+
+// ---------- Connect helpers ----------
+// Fills {{name}} placeholders (spaces inside the braces are fine). Unknown
+// names become empty. Values are inserted as given; callers escape them.
+String renderTemplate(const String& tpl, const char* const* keys, const String* vals, int n) {
+  String o;
+  o.reserve(tpl.length() + 64);
+  int i = 0, len = tpl.length();
+  while (i < len) {
+    int open = tpl.indexOf("{{", i);
+    if (open < 0) { o += tpl.substring(i); break; }
+    int close = tpl.indexOf("}}", open + 2);
+    if (close < 0) { o += tpl.substring(i); break; }
+    o += tpl.substring(i, open);
+    String key = tpl.substring(open + 2, close);
+    key.trim();
+    for (int k = 0; k < n; k++) if (key == keys[k]) { o += vals[k]; break; }
+    i = close + 2;
+  }
+  return o;
+}
+
+// Status map "NEW=new,pending; PREP=cooking; ...; REMOVE=cancelled" applied to a
+// value from another system. Returns 0..3 (NEW, PREP, READY, PAID), 4 for
+// REMOVE, or -1 when the value isn't known. The device's own names always work.
+int mapStatus(const String& map, const String& value) {
+  static const char* const NAMES[5] = {"NEW", "PREP", "READY", "PAID", "REMOVE"};
+  String v = value; v.trim(); v.toLowerCase();
+  if (!v.length()) return -1;
+  for (int i = 0; i < 5; i++) { String n = NAMES[i]; n.toLowerCase(); if (v == n) return i; }
+  int pos = 0, len = map.length();
+  while (pos < len) {
+    int semi = map.indexOf(';', pos);
+    if (semi < 0) semi = len;
+    String grp = map.substring(pos, semi);
+    pos = semi + 1;
+    int eq = grp.indexOf('=');
+    if (eq < 0) continue;
+    String target = grp.substring(0, eq); target.trim(); target.toUpperCase();
+    int t = -1;
+    for (int i = 0; i < 5; i++) if (target == NAMES[i]) t = i;
+    if (t < 0) continue;
+    String vals = grp.substring(eq + 1);
+    int p = 0, vl = vals.length();
+    while (p <= vl) {
+      int comma = vals.indexOf(',', p);
+      if (comma < 0) comma = vl;
+      String one = vals.substring(p, comma); one.trim(); one.toLowerCase();
+      if (one.length() && one == v) return t;
+      p = comma + 1;
+    }
+  }
+  return -1;
+}
+
+// 32-bit FNV-1a, for remembering command IDs cheaply
+uint32_t fnv1a(const String& s) {
+  uint32_t h = 2166136261u;
+  for (unsigned i = 0; i < s.length(); i++) { h ^= (uint8_t)s[i]; h *= 16777619u; }
+  return h;
+}
+
+// Lower-case hex of a byte buffer
+String toHex(const uint8_t* b, size_t n) {
+  static const char* H = "0123456789abcdef";
+  String o;
+  o.reserve(n * 2);
+  for (size_t i = 0; i < n; i++) { o += H[b[i] >> 4]; o += H[b[i] & 15]; }
+  return o;
+}
+
+// ASCII only, for the SAM voice (it can't say anything else), max n chars
+String asciiOnly(const String& s, unsigned n) {
+  String o;
+  for (unsigned i = 0; i < s.length() && o.length() < n; i++) {
+    uint8_t c = (uint8_t)s[i];
+    bool space = c == ' ' || (c >= 0x80 && (c & 0xC0) != 0x80);   // non-ASCII char -> one space
+    if (space) { if (o.length() && o[o.length() - 1] != ' ') o += ' '; }
+    else if (c > 0x20 && c < 0x7F) o += (char)c;
+  }
+  o.trim();
+  return o;
+}

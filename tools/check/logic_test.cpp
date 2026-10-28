@@ -208,7 +208,36 @@ static void imap_tests() {
   EXPECT(parseAmount(mimeDecodeHeader(m[1].subject), a) && a == 120000, "subject 2 amount");
 }
 
+static void connect_tests() {
+  const char* k[] = {"amount", "note", "body"};
+  String v[] = {"500", "Ram \\\"R\\\"", "{\"a\":1}"};
+  eqStr(renderTemplate("{\"t\":\"Rs {{amount}} from {{ note }}\",\"raw\":{{body}},\"x\":\"{{nope}}\"}", k, v, 3),
+        "{\"t\":\"Rs 500 from Ram \\\"R\\\"\",\"raw\":{\"a\":1},\"x\":\"\"}", "template");
+  eqStr(renderTemplate("no placeholders", k, v, 3), "no placeholders", "template plain");
+  eqStr(renderTemplate("open {{amount", k, v, 3), "open {{amount", "template unclosed");
+
+  const char* map = "NEW=new,pending, Received; PREP=preparing ,printing;READY=ready;PAID=paid,completed;REMOVE=cancelled,deleted";
+  EXPECT(mapStatus(map, "pending") == 0, "pending");
+  EXPECT(mapStatus(map, " RECEIVED ") == 0, "received case/space");
+  EXPECT(mapStatus(map, "printing") == 1, "printing");
+  EXPECT(mapStatus(map, "Ready") == 2, "ready");
+  EXPECT(mapStatus(map, "completed") == 3, "completed");
+  EXPECT(mapStatus(map, "cancelled") == 4, "cancelled -> REMOVE");
+  EXPECT(mapStatus(map, "PREP") == 1, "device name always works");
+  EXPECT(mapStatus(map, "paid") == 3, "paid");
+  EXPECT(mapStatus(map, "shipped") == -1, "unknown");
+  EXPECT(mapStatus(map, "") == -1, "empty");
+  EXPECT(mapStatus("garbage;=x;FOO=bar", "bar") == -1, "bad map");
+
+  EXPECT(fnv1a("c-77") != fnv1a("c-78") && fnv1a("") == 2166136261u, "fnv1a");
+  uint8_t b[] = {0x00, 0x7f, 0xab, 0xff};
+  eqStr(toHex(b, 4), "007fabff", "hex");
+  eqStr(asciiOnly("Order \xE0\xA4\xB0 ready!\n", 50), "Order ready!", "ascii for SAM");
+  eqStr(asciiOnly("abcdef", 3), "abc", "ascii cap");
+}
+
 int main() {
+  connect_tests();
   imap_tests();
   words_tests();
   amount_tests();

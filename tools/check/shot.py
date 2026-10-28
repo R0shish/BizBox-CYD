@@ -15,7 +15,7 @@ async def main():
         await pg.route('**/fonts.gstatic.com/**',lambda r: r.abort())
         await pg.goto('file://'+TMP+'/dash.html'); await pg.wait_for_timeout(400)
         await pg.screenshot(path=OUT+'/web_today.png',full_page=True)
-        for t,n in [('t-qr','web_qr'),('t-gmail','web_gmail'),('t-sys','web_sys')]:
+        for t,n in [('t-qr','web_qr'),('t-gmail','web_gmail'),('t-cx','web_connect'),('t-sys','web_sys')]:
             await pg.click(f'[data-t={t}]'); await pg.wait_for_timeout(150)
             await pg.screenshot(path=OUT+'/'+n+'.png',full_page=True)
         await pg.goto('file://'+TMP+'/portal.html'); await pg.wait_for_timeout(300)

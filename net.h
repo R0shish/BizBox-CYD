@@ -11,38 +11,59 @@
 //   - Status text for the dashboard goes through netSetStatus/netStatus.
 // ==========================================================================
 
-enum NetEvtType : uint8_t { EV_PAYMENT = 0 };
+enum NetEvtType : uint8_t {
+  EV_PAYMENT = 0,   // from Gmail / Apps Script: book it, announce it
+  EV_ORDER,         // Connect pull: add/update/remove an order by external ID
+  EV_SAY,           // Connect: speak text
+  EV_ANNOUNCE,      // Connect (signed): a payment to announce and book
+  EV_SCREEN,        // Connect: switch screen (status = screen index)
+};
+enum : uint8_t { SRC_GMAIL = 0, SRC_APPS_SCRIPT };
+enum : uint8_t { HAS_TITLE = 1, HAS_AMOUNT = 2, HAS_STATUS = 4 };
 
 struct NetEvent {
   uint8_t type;
+  uint8_t source;       // EV_PAYMENT: SRC_*
+  uint8_t has;          // EV_ORDER: which fields the system sent (HAS_*)
+  uint8_t status;       // EV_ORDER: 0-3 = NEW..PAID, 4 = remove; EV_SCREEN: screen
   bool stale;           // EV_PAYMENT: book it, but don't announce
   uint32_t paisa;
-  char note[32];
-  char title[48];
+  char note[32];        // payment note / sender
+  char ext[40];         // EV_ORDER: the system's order ID
+  char text[100];       // order title, or text to say
 };
 
 QueueHandle_t netQueue = nullptr;
 SemaphoreHandle_t cfgLock = nullptr;
 volatile bool netPollNow = false;          // set by the loop: "poll as soon as you can"
+volatile uint32_t cfgVersion = 1;          // bumped (under cfgLock) whenever the settings change
 volatile uint8_t netDot = NET_OK;          // what the status dot should show
 
-static portMUX_TYPE netStatusMux = portMUX_INITIALIZER_UNLOCKED;
-static char netStatusBuf[96] = "Idle";
+// A line of status text written by the network task, read by the web pages
+class StatusText {
+ public:
+  explicit StatusText(const char* init) { strncpy(buf_, init, sizeof buf_ - 1); }
+  void set(const String& s) {
+    portENTER_CRITICAL(&mux_);
+    strncpy(buf_, s.c_str(), sizeof buf_ - 1);
+    buf_[sizeof buf_ - 1] = 0;
+    portEXIT_CRITICAL(&mux_);
+  }
+  String get() {
+    char b[sizeof buf_];
+    portENTER_CRITICAL(&mux_);
+    memcpy(b, buf_, sizeof b);
+    portEXIT_CRITICAL(&mux_);
+    return String(b);
+  }
+ private:
+  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+  char buf_[96] = {0};
+};
 
-void netSetStatus(const String& s) {
-  portENTER_CRITICAL(&netStatusMux);
-  strncpy(netStatusBuf, s.c_str(), sizeof netStatusBuf - 1);
-  netStatusBuf[sizeof netStatusBuf - 1] = 0;
-  portEXIT_CRITICAL(&netStatusMux);
-}
-
-String netStatus() {
-  char b[sizeof netStatusBuf];
-  portENTER_CRITICAL(&netStatusMux);
-  memcpy(b, netStatusBuf, sizeof b);
-  portEXIT_CRITICAL(&netStatusMux);
-  return String(b);
-}
+StatusText payStatus("Idle");     // payment source (Gmail / Apps Script)
+void netSetStatus(const String& s) { payStatus.set(s); }
+String netStatus() { return payStatus.get(); }
 
 struct CfgLock {
   CfgLock() { if (cfgLock) xSemaphoreTake(cfgLock, portMAX_DELAY); }
@@ -55,14 +76,15 @@ static void netCopy(char* dst, size_t n, const String& s) {
   dst[n - 1] = 0;
 }
 
-static bool netPostPayment(uint32_t paisa, const String& note, const String& title, bool stale) {
+static bool netPostPayment(uint8_t source, uint32_t paisa, const String& note, const String& title, bool stale) {
   NetEvent e;
   memset(&e, 0, sizeof e);
   e.type = EV_PAYMENT;
+  e.source = source;
   e.paisa = paisa;
   e.stale = stale;
   netCopy(e.note, sizeof e.note, note);
-  netCopy(e.title, sizeof e.title, title);
+  netCopy(e.text, sizeof e.text, title);
   return xQueueSend(netQueue, &e, pdMS_TO_TICKS(2000)) == pdTRUE;
 }
 
@@ -80,7 +102,7 @@ static bool netPollGmail(const PollCfg& c, bool& more) {
   ImapState st = netImapState;
   bool ok = imapPoll(c.imap, st, r, (uint32_t)time(nullptr));
   for (int i = 0; i < r.count; i++)
-    netPostPayment(r.pays[i].paisa, r.pays[i].note, r.pays[i].title, r.pays[i].stale);
+    netPostPayment(SRC_GMAIL, r.pays[i].paisa, r.pays[i].note, r.pays[i].title, r.pays[i].stale);
   // Persist the mailbox position only after the payments are queued
   if (st.uidValidity != netImapState.uidValidity || st.lastUid != netImapState.lastUid) {
     netImapState = st;
@@ -131,7 +153,7 @@ static bool netPollAppsScript(const PollCfg& c) {
           uint32_t a = 0;
           if (!moneyFromDouble(p["amount"].as<double>(), a)) continue;
           String note = p["from"].as<String>();
-          netPostPayment(a, note, note.length() ? note : String("eSewa Pay"), false);
+          netPostPayment(SRC_APPS_SCRIPT, a, note, note.length() ? note : String("eSewa Pay"), false);
           n++;
         }
         netSetStatus("Apps Script OK - " + String(n) + " new");
@@ -142,46 +164,3 @@ static bool netPollAppsScript(const PollCfg& c) {
   return ok;
 }
 
-// ---------- The task ----------
-const uint32_t NET_POLL_MS = 15000;
-
-void netTask(void*) {
-  uint32_t lastPoll = 0;
-  bool first = true, more = false;
-  for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(200));
-    if (WiFi.status() != WL_CONNECTED) continue;
-    uint32_t now = millis();
-    bool due = first || netPollNow || now - lastPoll >= (more ? 1000UL : NET_POLL_MS);
-    if (!due) continue;
-    first = false;
-    netPollNow = false;
-    lastPoll = now;
-
-    PollCfg c;
-    {
-      CfgLock l;
-      c.mode = cfg.emailMode;
-      c.imap.user = cfg.gmailUser;
-      c.imap.pass = cfg.gmailPass;
-      c.imap.query = cfg.imapQuery;
-      c.imap.currency = cfg.currency;
-      c.imap.verifyTls = cfg.verifyGoogle;
-      c.url = cfg.url;
-      c.key = cfg.key;
-    }
-    if (c.mode == 2) { netDot = NET_OK; more = false; continue; }   // local API only
-    netDot = NET_SYNC;
-    bool ok = c.mode == 0 ? netPollGmail(c, more) : netPollAppsScript(c);
-    if (c.mode != 0) more = false;
-    netDot = ok ? NET_OK : NET_ERR;
-  }
-}
-
-void netBegin(const ImapState& st, const String& since) {
-  netImapState = st;
-  netSince = since.length() ? since : String("0");
-  netQueue = xQueueCreate(12, sizeof(NetEvent));
-  cfgLock = xSemaphoreCreateMutex();
-  xTaskCreatePinnedToCore(netTask, "net", 16384, nullptr, 1, nullptr, 0);
-}

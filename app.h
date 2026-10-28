@@ -68,7 +68,9 @@ void recordPayment(uint32_t paisa) {
   saveSales();
 }
 
-void addOrder(const String& title, uint32_t amount, const String& status = "NEW") {
+// Adds an order to the screen list. PAID orders count towards today's
+// numbers unless book is false (orders whose payment is booked elsewhere).
+OrderItem* addOrder(const String& title, uint32_t amount, const String& status = "NEW", bool book = true) {
   if (orderCount >= MAX_ORDERS) {
     // Full: drop the oldest PAID order; only if none is paid, the oldest one
     int drop = 0;
@@ -83,8 +85,61 @@ void addOrder(const String& title, uint32_t amount, const String& status = "NEW"
   o.status = status;
   o.ext = "";
   ordersChanged();
-  if (status == "PAID") recordPayment(amount);
+  if (book && status == "PAID") recordPayment(amount);
   if (currentScreen == SCREEN_ORDERS || currentScreen == SCREEN_STATS) redrawContent();
+  return &o;
+}
+
+// What a webhook says about an order
+ConnectData orderEvent(const OrderItem& o, const char* source) {
+  ConnectData d;
+  d.source = source;
+  d.paisa = o.amount;
+  d.orderId = o.id;
+  d.ext = o.ext;
+  d.title = o.title;
+  d.status = o.status;
+  return d;
+}
+
+// A payment from any source: on the list, in today's numbers, out as a webhook
+OrderItem* bookPayment(const String& title, uint32_t paisa, const String& note, const char* source, bool webhook = true) {
+  OrderItem* o = addOrder(title, paisa, "PAID");
+  if (webhook) {
+    ConnectData d = orderEvent(*o, source);
+    d.note = note;
+    connectEmit("payment.received", d);
+  }
+  return o;
+}
+
+// Orders from the Connect pull, matched by their external ID. Updates from
+// the other system don't touch today's totals and aren't echoed back.
+void applyExternalOrder(const NetEvent& e) {
+  String ext = e.ext;
+  int idx = -1;
+  for (int i = 0; i < orderCount; i++) if (orders[i].ext == ext) { idx = i; break; }
+  bool remove = (e.has & HAS_STATUS) && e.status == 4;
+  if (idx < 0) {
+    if (remove) return;
+    String status = (e.has & HAS_STATUS) ? ORDER_STATUS[e.status] : "NEW";
+    OrderItem* o = addOrder((e.has & HAS_TITLE) && e.text[0] ? String(e.text) : "Order " + ext,
+                            (e.has & HAS_AMOUNT) ? e.paisa : 0, status, false);
+    o->ext = ext;
+    ordersChanged();
+    return;
+  }
+  if (remove) {
+    for (int i = idx; i < orderCount - 1; i++) orders[i] = orders[i + 1];
+    orderCount--;
+  } else {
+    OrderItem& o = orders[idx];
+    if (e.has & HAS_TITLE) o.title = e.text;
+    if (e.has & HAS_AMOUNT) o.amount = e.paisa;
+    if (e.has & HAS_STATUS) o.status = ORDER_STATUS[e.status];
+  }
+  ordersChanged();
+  if (currentScreen == SCREEN_ORDERS) redrawContent();
 }
 
 // ==========================================
@@ -130,18 +185,20 @@ void announce(uint32_t paisa, const String& note, bool test) {
 }
 
 // Announcements wait here so whoever triggered them (an HTTP request, the
-// network task) never waits for the animation and speech.
-struct Announcement { uint32_t paisa; String note; bool test; };
+// network task) never waits for the animation and speech. An entry with
+// `say` set just speaks that text (Connect "say" command).
+struct Announcement { uint32_t paisa; String note; bool test; String say; };
 const int ANN_MAX = 6;
 Announcement annQ[ANN_MAX];
 int annHead = 0, annCount = 0;
 
-bool queueAnnouncement(uint32_t paisa, const String& note, bool test = false) {
+bool queueAnnouncement(uint32_t paisa, const String& note, bool test = false, const String& say = "") {
   if (annCount >= ANN_MAX) return false;
   Announcement& a = annQ[(annHead + annCount++) % ANN_MAX];
   a.paisa = paisa;
   a.note = note;
   a.test = test;
+  a.say = say;
   return true;
 }
 
@@ -150,7 +207,8 @@ void handleAnnouncements() {
   Announcement a = annQ[annHead];
   annHead = (annHead + 1) % ANN_MAX;
   annCount--;
-  announce(a.paisa, a.note, a.test);
+  if (a.say.length()) playVoice(a.say);
+  else announce(a.paisa, a.note, a.test);
 }
 
 // ==========================================
@@ -159,9 +217,20 @@ void handleAnnouncements() {
 void handleNetEvents() {
   NetEvent e;
   while (netQueue && xQueueReceive(netQueue, &e, 0) == pdTRUE) {
-    if (e.type == EV_PAYMENT) {
-      addOrder(e.title[0] ? String(e.title) : String("Payment"), e.paisa, "PAID");
-      if (!e.stale) queueAnnouncement(e.paisa, e.note);
+    switch (e.type) {
+      case EV_PAYMENT:
+        bookPayment(e.text[0] ? String(e.text) : String("Payment"), e.paisa, e.note,
+                    e.source == SRC_GMAIL ? "gmail" : "apps_script");
+        if (!e.stale) queueAnnouncement(e.paisa, e.note);
+        break;
+      case EV_ANNOUNCE:     // the other system's own payment: no webhook echo
+        bookPayment(e.note[0] ? String(e.note) : String("Payment"), e.paisa, e.note, "connect", false);
+        queueAnnouncement(e.paisa, e.note);
+        break;
+      case EV_ORDER:  applyExternalOrder(e); break;
+      case EV_SAY:    queueAnnouncement(0, "", false, e.text); break;
+      case EV_SCREEN: if (!portalMode) setScreen(e.status); break;
+      default: break;
     }
   }
 }

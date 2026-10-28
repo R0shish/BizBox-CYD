@@ -42,6 +42,7 @@ void handleTap(int x, int y) {
     for (int i = 0; i < orderCount && i < ORD_ROWS; i++) {
       int oy = ORD_LIST_Y + i * ORD_ROW_H;
       if (y >= oy && y < oy + ORD_ROW_H) {
+        String old = orders[i].status;
         if (orders[i].status == "NEW") orders[i].status = "PREP";
         else if (orders[i].status == "PREP") orders[i].status = "READY";
         else if (orders[i].status == "READY") orders[i].status = "PAID";
@@ -49,6 +50,9 @@ void handleTap(int x, int y) {
         ordersChanged();
         ui_orderRow(i, true);
         ui_ordersChip(true);
+        ConnectData d = orderEvent(orders[i], "screen");
+        d.oldStatus = old;
+        connectEmit("order.status_changed", d);
         break;
       }
     }
