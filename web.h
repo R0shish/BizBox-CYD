@@ -29,7 +29,7 @@ h2{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:6px 0 14px}
 .pill.open{color:var(--green)}.pill.closed{color:var(--red)}
 .tabs{position:sticky;top:0;z-index:9;background:rgba(13,31,51,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:18px}
 .tabs .wrap{display:flex;overflow-x:auto;scrollbar-width:none}
-.tab{flex:1;min-width:72px;background:none;border:0;color:var(--muted);padding:10px 4px 9px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;border-top:2px solid transparent;line-height:1.5}
+.tab{flex:1;min-width:54px;background:none;border:0;color:var(--muted);padding:10px 2px 9px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border-top:2px solid transparent;line-height:1.5}
 .tab i{display:block;font-style:normal;color:var(--dim)}
 .tab.on{color:var(--ink);border-top-color:var(--cyan)}.tab.on i{color:var(--cyan)}
 .pane{display:none}.pane.on{display:block}
@@ -78,50 +78,117 @@ footer{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center
 
 static const char WEB_JS[] PROGMEM = R"JS(
 const $=s=>document.querySelector(s);
+const TOKEN=document.body.dataset.token||'';
+function api(u,o){o=o||{};o.headers=Object.assign({'Authorization':'Bearer '+TOKEN},o.headers||{});return fetch(u,o)}
+function copyTok(){const i=$('#tok');i.select();try{navigator.clipboard.writeText(i.value)}catch(e){document.execCommand('copy')}toast('TOKEN COPIED')}
 function tab(id,el){document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
 document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));$('#'+id).classList.add('on');el.classList.add('on');
 try{localStorage.setItem('tab',id)}catch(e){}}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 function grp(n){n=String(Math.round(n));if(n.length<=3)return n;let t=n.slice(-3),h=n.slice(0,-3);return h.replace(/\B(?=(\d{2})+(?!\d))/g,',')+','+t}
+function amt(n){const r=Math.floor(n),p=Math.round((n-r)*100);return grp(r)+(p?'.'+String(p).padStart(2,'0'):'')}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function addOrder(){const t=$('#p_item').value.trim(),a=parseInt($('#p_amt').value)||0;if(!t){toast('ADD AN ITEM NAME');return}
-fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW'})})
+api('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW',source:'dashboard'})})
 .then(()=>{$('#p_item').value='';$('#p_amt').value='';toast('SENT TO SCREEN');refresh()})}
-function act(u,m){fetch(u).then(()=>{toast(m);refresh()})}
+function act(u,m){api(u,{method:'POST'}).then(()=>{toast(m);refresh()})}
 function presetQR(v){const f=$('#qr_input');const p={upi:'upi://pay?pa=yourstore@upi&pn=Store&cu=INR',paypal:'https://paypal.me/yourbusiness'};if(p[v])f.value=p[v];}
+function preset(i){const p=PRESETS[i];if(!p)return;const m={pull_orders:'cxpord',pull_id:'cxpid',pull_title:'cxptit',pull_amount:'cxpamt',pull_status:'cxpst',pull_commands:'cxpcmd',pull_cursor:'cxpcur',status_map:'cxmap'};
+for(const k in m)if(p[k]!==undefined)document.querySelector('[name='+m[k]+']').value=p[k];
+if(p.events!==undefined)[1,2,4].forEach(b=>{document.querySelector('[name=cxe'+b+']').checked=!!(p.events&b)});toast('PRESET FILLED. SAVE TO KEEP')}
+function cxTest(){api('/api/connect/test',{method:'POST'}).then(r=>r.json()).then(j=>{toast(j.error?j.error.toUpperCase():'TEST EVENT QUEUED');setTimeout(refresh,3000)})}
+function cxPullNow(){api('/api/connect/pull',{method:'POST'}).then(r=>r.json()).then(j=>{toast(j.error?j.error.toUpperCase():'PULLING');setTimeout(refresh,3000)})}
 function render(s){
+if(s.connect){$('#cxhook').textContent=s.connect.hook;$('#cxpull').textContent=s.connect.pull;$('#cxq').textContent=s.connect.queue;$('#cxcur').value=s.connect.cursor}
 $('#sales').textContent=grp(s.sales);$('#tx').textContent=s.tx;$('#avg').textContent=s.cur+' '+grp(s.avg);$('#last').textContent=s.last||'--:--';
 $('#clock').textContent=s.time;$('#imap').textContent=s.imap;$('#ndot').className='dot'+(s.net==3?' err':s.net==2?' sync':'');
 const op=$('#openpill');op.className='pill '+(s.open?'open':'closed');op.textContent=s.open?'Open':'Closed';
 const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div class="'+(h==s.hour?'now':v?'':'zero')+'" style="height:'+(v?Math.max(6,v/mx*100):3)+'%"></div>').join('');
-$('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?grp(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
-function refresh(){fetch('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
+$('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
+function refresh(){api('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
-if(!document.body.dataset.portal){refresh();setInterval(refresh,5000)}
+try{$('.tab.on').scrollIntoView({inline:'nearest',block:'nearest'})}catch(e){}
+try{const sel=$('#cxpreset');PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;sel.appendChild(o)})}catch(e){}
+if(!document.body.dataset.portal){refresh();setInterval(()=>{if(!document.hidden)refresh()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()})}
 )JS";
 
+// Admin PIN (HTTP Basic, user "admin"). Also enforced in setup mode: that
+// hotspot is open, and it comes up whenever Wi-Fi is down at boot.
+// 5 wrong PINs lock the dashboard for a minute.
 bool authed() {
-  if (portalMode || cfg.adminPin.isEmpty()) return true;
-  if (server.authenticate("admin", cfg.adminPin.c_str())) return true;
+  if (cfg.adminPin.isEmpty()) return true;
+  static uint8_t fails = 0;
+  static uint32_t lockedAt = 0;
+  if (lockedAt && millis() - lockedAt < 60000) {
+    server.send(429, "text/plain", "Too many wrong PINs. Try again in a minute.");
+    return false;
+  }
+  lockedAt = 0;
+  if (server.authenticate("admin", cfg.adminPin.c_str())) { fails = 0; return true; }
+  if (server.hasHeader("Authorization") && ++fails >= 5) {   // a wrong PIN, not just the first prompt
+    fails = 0;
+    lockedAt = millis() | 1;
+  }
   server.requestAuthentication();
   return false;
 }
 
+// Every /api/* endpoint needs "Authorization: Bearer <token>". Browsers can't
+// add that header to a cross-site request without a CORS preflight (which we
+// never approve), so this also stops other web pages from driving the API.
+bool apiAuthed() {
+  String h = server.header("Authorization");
+  String want = "Bearer " + cfg.apiToken;
+  bool ok = cfg.apiToken.length() && h.length() == want.length();
+  uint8_t diff = 0;
+  for (unsigned i = 0; ok && i < h.length(); i++) diff |= (uint8_t)(h[i] ^ want[i]);   // constant time
+  if (ok && diff == 0) return true;
+  server.sendHeader("WWW-Authenticate", "Bearer realm=\"bizbox\"");
+  server.send(401, "application/json", "{\"error\":\"missing or wrong API token\"}");
+  return false;
+}
+
+// Forms carry a per-boot nonce so another web page can't post to /save
+// (e.g. to swap the payment QR for its own) through the owner's browser.
+String formNonce;
+#define FORM_OPEN (String("<form method=post action=/save><input type=hidden name=csrf value=") + formNonce + ">")
+
 String sel(bool on) { return on ? " selected" : ""; }
 String chk(bool on) { return on ? " checked" : ""; }
 
-String pageHead(const String& title) {
-  String h = "<!doctype html><html lang=en><head><meta charset=utf-8>"
-             "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
-             "<meta name=theme-color content='#0D1F33'><title>" + esc(title) + "</title>";
+// Streams a page as HTTP chunks through a ~1 KB buffer, so a dashboard
+// load never needs one big String (the heap is fragmented after TLS).
+// CSS and JS go out straight from flash.
+class PageOut {
+ public:
+  explicit PageOut(int code = 200) {
+    buf_.reserve(1100);
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(code, "text/html; charset=utf-8", "");
+  }
+  ~PageOut() { flush(); server.sendContent(""); }   // empty chunk ends the response
+  PageOut& operator+=(const String& s) { buf_ += s; if (buf_.length() >= 1024) flush(); return *this; }
+  PageOut& operator+=(const char* s) { buf_ += s; if (buf_.length() >= 1024) flush(); return *this; }
+  void progmem(PGM_P p) { flush(); server.sendContent_P(p); }
+  void flush() { if (buf_.length()) { server.sendContent(buf_); buf_ = ""; } }
+
+ private:
+  String buf_;
+};
+
+void pageHead(PageOut& h, const String& title) {
+  h += "<!doctype html><html lang=en><head><meta charset=utf-8>"
+       "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
+       "<meta name=theme-color content='#0D1F33'><title>";
+  h += esc(title);
+  h += "</title>";
   if (!portalMode) {
     h += "<link rel=preconnect href=https://fonts.gstatic.com crossorigin>"
          "<link rel=stylesheet href='https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap'>";
   }
   h += "<style>";
-  h += WEB_CSS;
+  h.progmem(WEB_CSS);
   h += "</style></head>";
-  return h;
 }
 
 String hourlyBars() {
@@ -143,22 +210,94 @@ String orderRows() {
   String r;
   for (int i = 0; i < orderCount; i++) {
     r += "<div class=row><span class=id>#" + String(orders[i].id) + "</span><span class=t>" + esc(orders[i].title) +
-         "</span><span class=a>" + (orders[i].amount ? fmtAmt(orders[i].amount) : String("-")) +
+         "</span><span class=a>" + (orders[i].amount ? fmtPaisa(orders[i].amount, fmtAmt) : String("-")) +
          "</span><span class='pill s-" + orders[i].status + "'>" + orders[i].status + "</span></div>";
   }
   return r;
 }
 
+// Placeholder for a secret field: says whether one is stored, never shows it
+String secretHint(const String& v, const char* empty) {
+  return v.length() ? String("Saved. Leave blank to keep it") : String(empty);
+}
+
+String pathInput(const char* label, const char* name, const String& v) {
+  return String("<div><label>") + label + "</label><input name=" + name + " class=mono value='" + esc(v) +
+         "' autocapitalize=off autocorrect=off></div>";
+}
+
+// 05 Connect: webhooks out, pull in (docs/CONNECT.md)
+void webConnectTab(PageOut& h, bool on) {
+  h += String("<section id=t-cx class='pane") + (on ? " on" : "") + "'>" + FORM_OPEN + "<input type=hidden name=cxform value=1>";
+  h += "<div class=card><div class=eyebrow>01 <b>/ Connect</b></div><h2>Your own system.</h2>"
+       "<small>Send payments and order changes to any management system, and pull orders and commands from it. "
+       "Payloads, signatures and examples: docs/CONNECT.md in the BizBox project.</small>"
+       "<label>Preset</label><select id=cxpreset onchange='preset(this.value)'><option value=''>Choose a preset</option></select>"
+       "<small>Fills the paths, status map and events. URLs and secrets stay as they are.</small></div>";
+
+  h += "<div class=card><div class=eyebrow>02 <b>/ Webhooks</b></div><h2>Out.</h2>"
+       "<label>Webhook URL</label><input name=cxhook class=mono autocapitalize=off autocorrect=off value='";
+  h += esc(cfg.cxHook);
+  h += "' placeholder='https://example.com/bizbox'>"
+       "<label>Extra header (optional)</label><input type=password name=cxhdr autocomplete=new-password class=mono placeholder='";
+  h += secretHint(cfg.cxHeader, "Authorization: Bearer abc123");
+  h += "'>";
+  if (cfg.cxHeader.length()) h += "<label class=check><input type=checkbox name=cxhdrclr value=1> Remove the header</label>";
+  h += "<label>Signing secret (optional)</label><input type=password name=cxsec autocomplete=new-password class=mono placeholder='";
+  h += secretHint(cfg.cxSecret, "Any long random string");
+  h += "'>";
+  if (cfg.cxSecret.length()) h += "<label class=check><input type=checkbox name=cxsecclr value=1> Remove the secret</label>";
+  h += "<small>Signs every webhook (X-BizBox-Signature, HMAC-SHA256) and checks signed pull replies.</small>"
+       "<label>Send</label>"
+       "<label class=check><input type=checkbox name=cxe1 value=1" + chk(cfg.cxEvents & CX_EVT_PAYMENT) + "> payment.received</label>"
+       "<label class=check><input type=checkbox name=cxe2 value=1" + chk(cfg.cxEvents & CX_EVT_ORDER) + "> order.created</label>"
+       "<label class=check><input type=checkbox name=cxe4 value=1" + chk(cfg.cxEvents & CX_EVT_STATUS) + "> order.status_changed</label>"
+       "<label>Body template (optional)</label><textarea name=cxtpl rows=4 maxlength=1000 placeholder='Empty: the default JSON body. Placeholders like {{amount}} {{note}} {{ext_id}} {{body}}'>";
+  h += esc(cfg.cxTpl);
+  h += "</textarea><div class=stat>LAST · <span id=cxhook>";
+  h += esc(cxHookStatus.get());
+  h += "</span> · <span id=cxq>" + String(connectQueued()) + "</span> QUEUED</div>"
+       "<div class=grid2><button class=btn>Save</button><button type=button class='btn ghost' onclick='cxTest()'>Send test event</button></div></div>";
+
+  h += "<div class=card><div class=eyebrow>03 <b>/ Pull</b></div><h2>In.</h2>"
+       "<label>Pull URL</label><input name=cxpull class=mono autocapitalize=off autocorrect=off value='";
+  h += esc(cfg.cxPull);
+  h += "' placeholder='https://example.com/bizbox/pull'>"
+       "<div class=grid2><div><label>Every (seconds)</label><input type=number name=cxevery min=5 max=3600 value='" + String(cfg.cxEvery) + "'></div>"
+       "<div><label>Cursor</label><input id=cxcur class=mono readonly value='";
+  h += esc(cxCursorText.get());
+  h += "'></div></div>"
+       "<label class=check><input type=checkbox name=cxcurclr value=1> Reset the cursor (read everything again)</label>"
+       "<label class=check><input type=checkbox name=cxsign value=1" + chk(cfg.cxSigned) + "> Require signed replies</label>"
+       "<small>Unsigned replies can still add orders, speak and switch screens. Announcing a payment always needs a signed reply.</small>"
+       "<div class=grid2>";
+  h += pathInput("Orders path", "cxpord", cfg.cxPOrders);
+  h += pathInput("Commands path", "cxpcmd", cfg.cxPCommands);
+  h += pathInput("Order ID", "cxpid", cfg.cxPId);
+  h += pathInput("Title", "cxptit", cfg.cxPTitle);
+  h += pathInput("Amount", "cxpamt", cfg.cxPAmount);
+  h += pathInput("Status", "cxpst", cfg.cxPStatus);
+  h += pathInput("Cursor path", "cxpcur", cfg.cxPCursor);
+  h += "</div><label>Status map</label><textarea name=cxmap rows=4 class=mono>";
+  h += esc(cfg.cxMap);
+  h += "</textarea><small>Your statuses to NEW / PREP / READY / PAID, or REMOVE to take an order off the screen.</small>"
+       "<div class=stat>LAST · <span id=cxpull>";
+  h += esc(cxPullStatus.get());
+  h += "</span></div><div class=grid2><button class=btn>Save</button><button type=button class='btn ghost' onclick='cxPullNow()'>Test pull</button></div></div>"
+       "</form><script>const PRESETS=";
+  h.progmem(CONNECT_PRESETS);
+  h += ";</script></section>";
+}
+
 void handleRoot() {
   if (!authed()) return;
-  String name = cfg.bizName.length() ? cfg.bizName : String("Business Hub");
+  String name = shopName();
   uint32_t avg = totalTransactions ? todaySales / totalTransactions : 0;
   String ip = portalMode ? String("192.168.4.1") : WiFi.localIP().toString();
 
-  String h;
-  h.reserve(20000);
-  h += pageHead(name);
-  h += String("<body") + (portalMode ? " data-portal=1" : "") + "><div class=strip></div>";
+  PageOut h;
+  pageHead(h, name);
+  h += String("<body") + (portalMode ? " data-portal=1" : String(" data-token=") + cfg.apiToken) + "><div class=strip></div>";
 
   // Header
   h += "<header class=wrap><div class=eyebrow>" + String(portalMode ? "Setup mode" : "Payment soundbox") +
@@ -174,11 +313,11 @@ void handleRoot() {
   }
 
   // Tabs
-  const char* tabIds[5] = {"t-today", "t-qr", "t-brand", "t-gmail", "t-sys"};
-  const char* tabNames[5] = {"Today", "QR", "Brand", "Gmail", "System"};
-  int active = portalMode ? 4 : 0;
+  const char* tabIds[6] = {"t-today", "t-qr", "t-brand", "t-gmail", "t-cx", "t-sys"};
+  const char* tabNames[6] = {"Today", "QR", "Brand", "Gmail", "Connect", "System"};
+  int active = portalMode ? 5 : 0;
   h += "<nav class=tabs><div class=wrap>";
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     h += "<button class='tab" + String(i == active ? " on" : "") + "' data-t=" + tabIds[i] +
          " onclick=\"tab('" + tabIds[i] + "',this)\"><i>0" + String(i + 1) + "</i>" + tabNames[i] + "</button>";
   }
@@ -206,12 +345,12 @@ void handleRoot() {
        "<label>Amount (" + esc(cfg.currency) + ")</label><input id=p_amt type=number inputmode=numeric placeholder='450'>"
        "<button class=btn onclick='addOrder()'>Send to screen</button></div>"
 
-       "<div class=grid2><a class='btn cyan' href='/test?amt=100'>Test voice</a>"
+       "<div class=grid2><button class='btn cyan' onclick=\"api('/api/test',{method:'POST'}).then(()=>toast('TEST PLAYING'))\">Test voice</button>"
        "<button class='btn danger' onclick=\"if(confirm('Reset today to 0?'))act('/api/reset','TODAY RESET')\">Reset today</button></div>"
        "</section>";
 
   // 02 QR
-  h += String("<section id=t-qr class='pane") + (active == 1 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-qr class='pane") + (active == 1 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Payment QR</b></div><h2>What customers scan.</h2>"
        "<label>QR text or link</label>"
        "<textarea name=qr id=qr_input rows=5 placeholder='Paste the text inside your eSewa / Fonepay / Khalti merchant QR'>" + esc(cfg.qr) + "</textarea>"
@@ -222,7 +361,7 @@ void handleRoot() {
        "<button class=btn>Save QR</button></div></form></section>";
 
   // 03 Brand
-  h += String("<section id=t-brand class='pane") + (active == 2 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-brand class='pane") + (active == 2 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Brand</b></div><h2>Shop details.</h2>"
        "<label>Business name</label><input name=bname value='" + esc(cfg.bizName) + "' placeholder='Roast & Co'>"
        "<div class=grid2><div><label>Currency</label><input name=curr value='" + esc(cfg.currency) + "' placeholder='Rs'></div>"
@@ -234,25 +373,30 @@ void handleRoot() {
        "<button class=btn>Save</button></div></form></section>";
 
   // 04 Gmail
-  h += String("<section id=t-gmail class='pane") + (active == 3 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-gmail class='pane") + (active == 3 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Payment alerts</b></div><h2>Listen for payments.</h2>"
        "<label>Source</label><select name=emode>"
        "<option value=0" + sel(cfg.emailMode == 0) + ">Gmail inbox (direct IMAP)</option>"
        "<option value=1" + sel(cfg.emailMode == 1) + ">Google Apps Script webhook</option>"
        "<option value=2" + sel(cfg.emailMode == 2) + ">Local API only</option></select>"
        "<label>Gmail address</label><input type=email name=guser value='" + esc(cfg.gmailUser) + "' placeholder='yourshop@gmail.com' autocomplete=off>"
-       "<label>App password</label><input type=password name=gpass value='" + esc(cfg.gmailPass) + "' placeholder='xxxx xxxx xxxx xxxx' autocomplete=off>"
+       "<label>App password</label><input type=password name=gpass placeholder='" + String(cfg.gmailPass.length() ? "Saved. Leave blank to keep it" : "xxxx xxxx xxxx xxxx") + "' autocomplete=new-password>"
        "<small>16 characters, made at <a href='https://myaccount.google.com/apppasswords' target=_blank>myaccount.google.com/apppasswords</a></small>"
        "<label>Search filter</label><input name=query value='" + esc(cfg.imapQuery) + "' placeholder='UNSEEN FROM \"esewa\"' class=mono>"
-       "<div class=stat>STATUS · <span id=imap>" + esc(lastImapStatus) + "</span></div>"
+       "<small>Only emails whose subject reads like a payment (\"Rs 500 received\") are announced and marked read. Everything else stays unread.</small>"
+       "<label class=check><input type=checkbox name=gtls value=1" + chk(cfg.verifyGoogle) + "> Verify Google's certificate</label>"
+       "<div class=stat>STATUS · <span id=imap>" + esc(netStatus()) + "</span></div>"
        "<button class=btn>Save</button></div></form></section>";
 
   // 05 System
-  h += String("<section id=t-sys class='pane") + (active == 4 ? " on" : "") + "'><form method=post action=/save>"
+  webConnectTab(h, active == 4);
+
+  h += String("<section id=t-sys class='pane") + (active == 5 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Wi-Fi</b></div><h2>Network.</h2>"
        "<label>Network name</label><input name=ssid value='" + esc(cfg.ssid) + "' autocapitalize=off autocorrect=off>"
        "<label>Password</label><input type=password name=pass placeholder='Leave blank to keep current'>"
-       "<label>Admin PIN (optional)</label><input type=password name=pin inputmode=numeric value='" + esc(cfg.adminPin) + "' placeholder='Protects this page'>"
+       "<label>Admin PIN (optional)</label><input type=password name=pin inputmode=numeric autocomplete=new-password placeholder='" + String(cfg.adminPin.length() ? "Set. Leave blank to keep it" : "Protects this page") + "'>"
+       + String(cfg.adminPin.length() ? "<label class=check><input type=checkbox name=pinclr value=1> Remove the PIN</label>" : "") +
        "<button class=btn>Apply</button></div>"
 
        "<div class=card><div class=eyebrow>02 <b>/ Sound + screen</b></div><h2>Feel.</h2>"
@@ -271,17 +415,27 @@ void handleRoot() {
        "<label class=check><input type=checkbox name=tswap value=1" + chk(cfg.swapTouch) + "> Swap X and Y</label>"
        "<label class=check><input type=checkbox name=tinvx value=1" + chk(cfg.invertTouchX) + "> Flip X</label>"
        "<label class=check><input type=checkbox name=tinvy value=1" + chk(cfg.invertTouchY) + "> Flip Y</label>"
-       "<button class='btn ghost'>Save touch</button></div></form></section>";
+       "<button class='btn ghost'>Save touch</button></div></form>"
+       + FORM_OPEN + "<div class=card><div class=eyebrow>04 <b>/ API</b></div><h2>Token.</h2>"
+       "<label>API token</label><input id=tok class=mono readonly value='" + (portalMode ? String("") : cfg.apiToken) + "' onclick='copyTok()'>"
+       "<small>Send it as <span class=mono>Authorization: Bearer &lt;token&gt;</span> on every /api/* call. Tap to copy.</small>"
+       + String(cfg.adminPin.isEmpty() ? "<small style='color:var(--yellow)'>No admin PIN set: anyone on this Wi-Fi can open this page and read the token. Set a PIN above.</small>" : "") +
+       "<input type=hidden name=rotate value=1>"
+       "<button class='btn ghost' onclick=\"return confirm('Make a new token? Scripts using the old one stop working.')\">Make a new token</button></div></form></section>";
 
   h += "</main><footer>27.7° N, 85.3° E · MADE IN KATHMANDU</footer><div id=toast class=toast></div><script>";
-  h += WEB_JS;
+  h.progmem(WEB_JS);
   h += "</script></body></html>";
-
-  server.send(200, "text/html; charset=utf-8", h);
 }
 
 void handleSave() {
   if (!authed()) return;
+  if (!formNonce.length() || server.arg("csrf") != formNonce) {
+    server.send(403, "text/plain", "Form expired: reload the page and try again.");
+    return;
+  }
+  CfgLock lock;   // the network task reads these fields
+  cfgVersion++;
   String nssid = server.arg("ssid"), npass = server.arg("pass");
   bool wifiChanged = (nssid.length() && nssid != cfg.ssid) || npass.length();
   if (nssid.length()) cfg.ssid = nssid;
@@ -299,16 +453,41 @@ void handleSave() {
     cfg.brightness = constrain(server.arg("bright").toInt(), 10, 100);
     setBacklight(cfg.brightness);
   }
-  if (server.hasArg("vmode"))  cfg.voiceMode = server.arg("vmode").toInt();
+  if (server.hasArg("vmode"))  cfg.voiceMode = constrain((int)server.arg("vmode").toInt(), 0, 2);
   if (server.hasArg("cycle"))  cfg.autoCycle = (server.arg("cycle") == "1");
   if (server.hasArg("csec"))   cfg.cycleSecs = constrain(server.arg("csec").toInt(), 5, 120);
 
-  if (server.hasArg("emode"))  cfg.emailMode = server.arg("emode").toInt();
+  if (server.hasArg("emode"))  cfg.emailMode = constrain((int)server.arg("emode").toInt(), 0, 2);
   if (server.hasArg("guser"))  { cfg.gmailUser = server.arg("guser"); cfg.gmailUser.trim(); }
-  if (server.hasArg("gpass"))  { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }
+  // Secrets are never sent back to the browser, so blank means "keep"
+  if (server.arg("gpass").length()) { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }
   if (server.hasArg("query"))  { cfg.imapQuery = server.arg("query"); cfg.imapQuery.trim(); }
+  if (server.hasArg("emode"))  cfg.verifyGoogle = server.hasArg("gtls");   // checkbox lives on the Gmail form
 
-  if (server.hasArg("pin"))    cfg.adminPin = server.arg("pin");
+  if (server.hasArg("pinclr")) cfg.adminPin = "";
+  else if (server.arg("pin").length()) cfg.adminPin = server.arg("pin");
+  if (server.hasArg("rotate")) cfg.apiToken = newApiToken();
+
+  if (server.hasArg("cxform")) {     // Connect tab
+    cfg.cxHook = server.arg("cxhook"); cfg.cxHook.trim();
+    String hdr = server.arg("cxhdr"); hdr.trim();
+    if (server.hasArg("cxhdrclr")) cfg.cxHeader = "";
+    else if (hdr.length() && hdr.indexOf('\n') < 0 && hdr.indexOf('\r') < 0) cfg.cxHeader = hdr;
+    if (server.hasArg("cxsecclr")) cfg.cxSecret = "";
+    else if (server.arg("cxsec").length()) cfg.cxSecret = server.arg("cxsec");
+    cfg.cxEvents = (server.hasArg("cxe1") ? CX_EVT_PAYMENT : 0) | (server.hasArg("cxe2") ? CX_EVT_ORDER : 0) |
+                   (server.hasArg("cxe4") ? CX_EVT_STATUS : 0);
+    cfg.cxTpl = utf8Cut(server.arg("cxtpl"), 1000);
+    cfg.cxPull = server.arg("cxpull"); cfg.cxPull.trim();
+    cfg.cxEvery = constrain((int)server.arg("cxevery").toInt(), 5, 3600);
+    cfg.cxSigned = server.hasArg("cxsign");
+    String* paths[] = {&cfg.cxPOrders, &cfg.cxPCommands, &cfg.cxPId, &cfg.cxPTitle, &cfg.cxPAmount, &cfg.cxPStatus, &cfg.cxPCursor};
+    const char* names[] = {"cxpord", "cxpcmd", "cxpid", "cxptit", "cxpamt", "cxpst", "cxpcur"};
+    for (int i = 0; i < 7; i++) { *paths[i] = server.arg(names[i]); paths[i]->trim(); }
+    cfg.cxMap = server.arg("cxmap");
+    if (server.hasArg("cxcurclr")) cxCursorReset = true;
+    cxPullNow = true;
+  }
   // Touch checkboxes only exist on the touch form, which is the one with the volume slider
   if (server.hasArg("vol")) {
     cfg.swapTouch    = server.hasArg("tswap");
@@ -318,32 +497,71 @@ void handleSave() {
 
   saveCfg();
 
-  String msg = pageHead("Saved");
-  msg += "<body><div class=strip></div><main class=wrap style='padding-top:48px'>"
-         "<div class=eyebrow style='color:var(--green)'>Saved</div>";
-  if (wifiChanged || portalMode) {
-    msg += "<h1>Joining " + esc(cfg.ssid) + ".</h1><p style='color:var(--muted)'>Switch your phone back to your normal Wi-Fi, "
-           "then open <a href='http://" MDNS_NAME ".local'>" MDNS_NAME ".local</a>. If that doesn't load, the IP is on the device's Setup screen.</p></main></body></html>";
-    server.send(200, "text/html; charset=utf-8", msg);
+  bool restart = wifiChanged || portalMode;
+  {
+    PageOut msg;
+    pageHead(msg, "Saved");
+    msg += "<body><div class=strip></div><main class=wrap style='padding-top:48px'>"
+           "<div class=eyebrow style='color:var(--green)'>Saved</div>";
+    if (restart) {
+      msg += "<h1>Joining " + esc(cfg.ssid) + ".</h1><p style='color:var(--muted)'>Switch your phone back to your normal Wi-Fi, "
+             "then open <a href='http://" MDNS_NAME ".local'>" MDNS_NAME ".local</a>. If that doesn't load, the IP is on the device's Setup screen.</p></main></body></html>";
+    } else {
+      msg += "<h1>Done.</h1><p style='color:var(--muted)'>The screen has updated.</p>"
+             "<a class=btn href='/' style='margin-top:24px'>Back to dashboard</a></main></body></html>";
+    }
+  }   // page sent
+  if (restart) {
+    if (ordersDirty) saveOrdersNow();
     delay(1500);
     ESP.restart();
   } else {
-    msg += "<h1>Done.</h1><p style='color:var(--muted)'>The screen has updated.</p>"
-           "<a class=btn href='/' style='margin-top:24px'>Back to dashboard</a></main></body></html>";
-    server.send(200, "text/html; charset=utf-8", msg);
     pendingRefresh = true;
   }
 }
 
+// Old bookmark / link: plays a TEST announcement (never booked as a sale)
 void handleTest() {
   if (!authed()) return;
-  pendingAmt = max(1, (int)server.arg("amt").toInt());
+  uint32_t p = 0;
+  if (!parseMoney(server.arg("amt"), p)) p = 10000;
+  queueAnnouncement(p, "Test", true);
   server.sendHeader("Location", "/");
   server.send(302);
 }
 
+// Amount from JSON: a number (500, 499.5) or a numeric string ("1,500.50")
+bool jsonMoney(JsonVariant v, uint32_t& paisa) {
+  if (v.is<const char*>()) return parseMoney(v.as<String>(), paisa);
+  if (v.is<double>() || v.is<long>()) return moneyFromDouble(v.as<double>(), paisa);
+  return false;
+}
+
+void apiError(int code, const char* msg) {
+  server.send(code, "application/json", String("{\"error\":\"") + msg + "\"}");
+}
+
+// Parses the request body as JSON; answers 400 itself when it isn't
+bool apiBody(JsonDocument& doc) {
+  if (deserializeJson(doc, server.arg("plain")) || !doc.is<JsonObject>()) {
+    apiError(400, "body must be a JSON object");
+    return false;
+  }
+  return true;
+}
+
+void handleApiTest() {
+  if (!apiAuthed()) return;
+  JsonDocument doc;
+  uint32_t p = 10000;
+  if (server.arg("plain").length() && !deserializeJson(doc, server.arg("plain")) && !doc["amount"].isNull() &&
+      !jsonMoney(doc["amount"], p)) { apiError(400, "amount must be between 0 and 1 crore"); return; }
+  queueAnnouncement(p, "Test", true);
+  server.send(200, "application/json", "{\"status\":\"ok\",\"test\":true}");
+}
+
 void handleApiState() {
-  if (!authed()) return;
+  if (!apiAuthed()) return;
   JsonDocument doc;
   struct tm t;
   bool tv = getLocalTime(&t, 0);
@@ -355,8 +573,13 @@ void handleApiState() {
   doc["cur"] = cfg.currency;
   doc["time"] = ui_clockText();
   doc["hour"] = tv ? t.tm_hour : -1;
-  doc["imap"] = lastImapStatus;
+  doc["imap"] = netStatus();
   doc["net"] = (int)netState;
+  JsonObject cx = doc["connect"].to<JsonObject>();
+  cx["hook"] = cxHookStatus.get();
+  cx["pull"] = cxPullStatus.get();
+  cx["queue"] = connectQueued();
+  cx["cursor"] = cxCursorText.get();
   JsonArray hr = doc["hourly"].to<JsonArray>();
   for (int i = 0; i < 24; i++) hr.add(hourly[i]);
   JsonArray os = doc["orders"].to<JsonArray>();
@@ -364,7 +587,7 @@ void handleApiState() {
     JsonObject o = os.add<JsonObject>();
     o["id"] = orders[i].id;
     o["title"] = orders[i].title;
-    o["amount"] = orders[i].amount;
+    o["amount"] = orders[i].amount / 100.0;
     o["status"] = orders[i].status;
   }
   String out;
@@ -373,48 +596,73 @@ void handleApiState() {
 }
 
 void handleApiOrder() {
-  if (server.method() == HTTP_POST) {
-    JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
-    String title = doc["title"] | "New Order";
-    uint32_t amt = doc["amount"] | 0;
-    String status = doc["status"] | "NEW";
-    addOrder(title, amt, status);
-    server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
-  } else {
-    server.send(405, "text/plain", "Method Not Allowed");
+  if (!apiAuthed()) return;
+  JsonDocument doc;
+  if (!apiBody(doc)) return;
+  String title = doc["title"] | "New Order";
+  title.trim();
+  if (!title.length()) title = "New Order";
+  uint32_t amt = 0;
+  if (!doc["amount"].isNull() && !jsonMoney(doc["amount"], amt) && doc["amount"].as<double>() != 0) {
+    apiError(400, "amount must be between 0 and 1 crore");
+    return;
   }
+  String status = doc["status"] | "NEW";
+  status.toUpperCase();
+  if (status != "NEW" && status != "PREP" && status != "READY" && status != "PAID") {
+    apiError(400, "status must be NEW, PREP, READY or PAID");
+    return;
+  }
+  OrderItem* o = addOrder(utf8Cut(title, 40), amt, status);
+  connectEmit("order.created", orderEvent(*o, doc["source"] == "dashboard" ? "dashboard" : "api"));
+  server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
 }
 
 void handleApiPayment() {
-  if (server.method() == HTTP_POST) {
-    JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
-    uint32_t amt = doc["amount"] | 0;
-    String note = doc["note"] | "Instant Payment";
-    if (amt > 0) {
-      addOrder(note, amt, "PAID");
-      announce(amt, note);
-    }
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-  } else {
-    server.send(405, "text/plain", "Method Not Allowed");
-  }
+  if (!apiAuthed()) return;
+  JsonDocument doc;
+  if (!apiBody(doc)) return;
+  uint32_t amt = 0;
+  if (!jsonMoney(doc["amount"], amt)) { apiError(400, "amount must be between 0 and 1 crore"); return; }
+  String note = doc["note"] | "Instant Payment";
+  note = utf8Cut(note, 40);
+  bookPayment(note, amt, note, "api");
+  bool queued = queueAnnouncement(amt, note);
+  // Answer now: the announcement plays from the loop, so callers never time out and retry
+  server.send(200, "application/json", String("{\"status\":\"ok\",\"announced\":") + (queued ? "true" : "false") + "}");
+}
+
+void handleApiConnectTest() {
+  if (!apiAuthed()) return;
+  if (cfg.cxHook.isEmpty()) { apiError(400, "set a webhook URL first"); return; }
+  ConnectData d;
+  d.source = "test";
+  d.test = true;
+  d.paisa = 10000;
+  d.note = "Test";
+  d.title = "Test payment";
+  d.status = "PAID";
+  connectEmit("payment.received", d);
+  server.send(200, "application/json", "{\"status\":\"queued\"}");
+}
+
+void handleApiConnectPull() {
+  if (!apiAuthed()) return;
+  if (cfg.cxPull.isEmpty()) { apiError(400, "set a pull URL first"); return; }
+  cxPullNow = true;
+  server.send(200, "application/json", "{\"status\":\"pulling\"}");
 }
 
 void handleApiReset() {
-  if (!authed()) return;
-  todaySales = 0;
-  totalTransactions = 0;
-  lastPayHM = "";
-  memset(hourly, 0, sizeof(hourly));
+  if (!apiAuthed()) return;
+  resetToday();
   saveSales();
-  if (currentScreen == SCREEN_STATS) drawScreen();
+  if (currentScreen == SCREEN_STATS) redrawContent();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
 void handleApiClear() {
-  if (!authed()) return;
+  if (!apiAuthed()) return;
   int keep = 0;
   for (int i = 0; i < orderCount; i++) {
     if (orders[i].status != "PAID") {
@@ -422,6 +670,34 @@ void handleApiClear() {
     }
   }
   orderCount = keep;
-  if (currentScreen == SCREEN_ORDERS) drawScreen();
+  ordersChanged();
+  if (currentScreen == SCREEN_ORDERS) redrawContent();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
+
+// ==========================================
+// Routes
+// ==========================================
+void webBegin() {
+  formNonce = newApiToken();   // per-boot form nonce
+
+  // Web routes & REST API
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.on("/test", HTTP_GET, handleTest);
+  // REST API: every /api/* needs "Authorization: Bearer <token>" (see web.h)
+  server.on("/api/state", HTTP_GET, handleApiState);
+  server.on("/api/order", HTTP_POST, handleApiOrder);
+  server.on("/api/payment", HTTP_POST, handleApiPayment);
+  server.on("/api/test", HTTP_POST, handleApiTest);
+  server.on("/api/connect/test", HTTP_POST, handleApiConnectTest);
+  server.on("/api/connect/pull", HTTP_POST, handleApiConnectPull);
+  server.on("/api/reset", HTTP_ANY, handleApiReset);   // POST from the dashboard, GET kept for old scripts
+  server.on("/api/clear", HTTP_ANY, handleApiClear);
+
+  // Captive Portal Detection Routes (for automatic popup on phone)
+  server.on("/hotspot-detect.html", HTTP_GET, handleCaptiveRedirect); // Apple iOS
+  server.on("/generate_204", HTTP_GET, handleCaptiveRedirect);        // Android
+  server.on("/ncsi.txt", HTTP_GET, handleCaptiveRedirect);            // Windows
+  server.onNotFound(handleCaptiveRedirect);
 }

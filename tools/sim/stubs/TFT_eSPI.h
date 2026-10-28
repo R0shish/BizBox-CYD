@@ -123,41 +123,56 @@ class TFT_eSPI {
   }
 
   // ---------- smooth fonts (VLW from PROGMEM) ----------
-  struct Glyph { uint16_t u; uint8_t h, w, adv; int16_t dy; int8_t dx; uint32_t bmp; };
-  const uint8_t* fontPtr = nullptr;
-  std::vector<Glyph> glyphs;
-  int ascent = 0, descent = 0, maxAscent = 0, maxDescent = 0, yAdvance = 0, spaceWidth = 0;
+  // Same public members and semantics as TFT_eSPI's Smooth_font.h, so code that
+  // caches loaded fonts by swapping gFont + the g* arrays works here too.
+  typedef struct {
+    const uint8_t* gArray; uint16_t gCount; uint16_t yAdvance; uint16_t spaceWidth;
+    int16_t ascent; int16_t descent; uint16_t maxAscent; uint16_t maxDescent;
+  } fontMetrics;
+  fontMetrics gFont = {nullptr, 0, 0, 0, 0, 0, 0, 0};
+  uint16_t* gUnicode = nullptr; uint8_t* gHeight = nullptr; uint8_t* gWidth = nullptr; uint8_t* gxAdvance = nullptr;
+  int16_t* gdY = nullptr; int8_t* gdX = nullptr; uint32_t* gBitmap = nullptr;
   bool fontLoaded = false;
+  int loadCount = 0;   // how many times a font was parsed (for tests)
   uint16_t textcolor = 0xFFFF, textbgcolor = 0;
   uint8_t textdatum = 0;
   int32_t cursor_x = 0, cursor_y = 0;
 
   static int32_t rd32(const uint8_t*& p) { int32_t v = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]; p += 4; return v; }
   void loadFont(const uint8_t* arr) {
-    fontPtr = arr;
+    if (fontLoaded) unloadFont();
+    loadCount++;
     const uint8_t* p = arr;
-    int n = rd32(p); rd32(p); rd32(p); rd32(p);
-    ascent = rd32(p); descent = rd32(p);
-    maxAscent = ascent; maxDescent = descent;
-    glyphs.clear();
+    gFont.gArray = arr;
+    gFont.gCount = (uint16_t)rd32(p); rd32(p); gFont.yAdvance = (uint16_t)rd32(p); rd32(p);
+    gFont.ascent = (int16_t)rd32(p); gFont.descent = (int16_t)rd32(p);
+    gFont.maxAscent = gFont.ascent; gFont.maxDescent = gFont.descent;
+    int n = gFont.gCount;
+    gUnicode = (uint16_t*)malloc(n * 2); gHeight = (uint8_t*)malloc(n); gWidth = (uint8_t*)malloc(n);
+    gxAdvance = (uint8_t*)malloc(n); gdY = (int16_t*)malloc(n * 2); gdX = (int8_t*)malloc(n); gBitmap = (uint32_t*)malloc(n * 4);
     uint32_t bmp = 24 + n * 28;
     for (int i = 0; i < n; i++) {
-      Glyph g;
-      g.u = (uint16_t)rd32(p); g.h = (uint8_t)rd32(p); g.w = (uint8_t)rd32(p); g.adv = (uint8_t)rd32(p);
-      g.dy = (int16_t)rd32(p); g.dx = (int8_t)rd32(p); rd32(p);
-      if (((int16_t)g.h - g.dy) > maxDescent && ((g.u > 0x20 && g.u < 0xA0 && g.u != 0x7F) || g.u > 0xFF)) maxDescent = g.h - g.dy;
-      g.bmp = bmp; bmp += g.w * g.h;
-      glyphs.push_back(g);
+      gUnicode[i] = (uint16_t)rd32(p); gHeight[i] = (uint8_t)rd32(p); gWidth[i] = (uint8_t)rd32(p);
+      gxAdvance[i] = (uint8_t)rd32(p); gdY[i] = (int16_t)rd32(p); gdX[i] = (int8_t)rd32(p); rd32(p);
+      if (((int16_t)gHeight[i] - gdY[i]) > (int16_t)gFont.maxDescent &&
+          ((gUnicode[i] > 0x20 && gUnicode[i] < 0xA0 && gUnicode[i] != 0x7F) || gUnicode[i] > 0xFF))
+        gFont.maxDescent = gHeight[i] - gdY[i];
+      gBitmap[i] = bmp; bmp += gWidth[i] * gHeight[i];
     }
-    yAdvance = maxAscent + maxDescent;
-    spaceWidth = (ascent + descent) * 2 / 7;
+    gFont.yAdvance = gFont.maxAscent + gFont.maxDescent;
+    gFont.spaceWidth = (gFont.ascent + gFont.descent) * 2 / 7;
     fontLoaded = true;
   }
-  void unloadFont() { fontLoaded = false; }
+  void unloadFont() {
+    free(gUnicode); free(gHeight); free(gWidth); free(gxAdvance); free(gdY); free(gdX); free(gBitmap);
+    gUnicode = nullptr; gHeight = gWidth = gxAdvance = nullptr; gdY = nullptr; gdX = nullptr; gBitmap = nullptr;
+    gFont.gArray = nullptr;
+    fontLoaded = false;
+  }
   void setTextFont(uint8_t) {}
   void setTextColor(uint16_t fg, uint16_t bg, bool = false) { textcolor = fg; textbgcolor = bg; }
   void setTextDatum(uint8_t d) { textdatum = d; }
-  int16_t fontHeight() { return yAdvance; }
+  int16_t fontHeight() { return gFont.yAdvance; }
 
   static std::vector<uint16_t> decode(const char* s) {
     std::vector<uint16_t> out;
@@ -170,7 +185,7 @@ class TFT_eSPI {
     }
     return out;
   }
-  const Glyph* find(uint16_t u) { for (auto& g : glyphs) if (g.u == u) return &g; return nullptr; }
+  int find(uint16_t u) { for (int i = 0; i < gFont.gCount; i++) if (gUnicode[i] == u) return i; return -1; }
 
   int16_t textWidth(const String& str) {
     auto cs = decode(str.c_str());
@@ -178,34 +193,34 @@ class TFT_eSPI {
     for (size_t i = 0; i < cs.size(); i++) {
       uint16_t u = cs[i];
       if (!u) continue;
-      if (u == 0x20) { w += spaceWidth; continue; }
-      const Glyph* g = find(u);
-      if (g) {
-        if (w == 0 && g->dx < 0) w -= g->dx;
-        if (i + 1 < cs.size()) w += g->adv; else w += g->dx + g->w;
-      } else w += spaceWidth + 1;
+      if (u == 0x20) { w += gFont.spaceWidth; continue; }
+      int g = find(u);
+      if (g >= 0) {
+        if (w == 0 && gdX[g] < 0) w -= gdX[g];
+        if (i + 1 < cs.size()) w += gxAdvance[g]; else w += gdX[g] + gWidth[g];
+      } else w += gFont.spaceWidth + 1;
     }
     return w;
   }
   void drawGlyph(uint16_t code) {
-    if (code == 0x20) { cursor_x += spaceWidth; return; }
-    const Glyph* g = find(code);
-    if (!g) {
-      drawRect(cursor_x, cursor_y + maxAscent - ascent, spaceWidth, ascent, textcolor);
-      cursor_x += spaceWidth + 1;
+    if (code == 0x20) { cursor_x += gFont.spaceWidth; return; }
+    int g = find(code);
+    if (g < 0) {
+      drawRect(cursor_x, cursor_y + gFont.maxAscent - gFont.ascent, gFont.spaceWidth, gFont.ascent, textcolor);
+      cursor_x += gFont.spaceWidth + 1;
       return;
     }
-    if (cursor_x == 0) cursor_x -= g->dx;
-    int cy = cursor_y + maxAscent - g->dy, cx = cursor_x + g->dx;
-    for (int y = 0; y < g->h; y++) for (int x = 0; x < g->w; x++) {
-      uint8_t a = fontPtr[g->bmp + x + g->w * y];
+    if (cursor_x == 0) cursor_x -= gdX[g];
+    int cy = cursor_y + gFont.maxAscent - gdY[g], cx = cursor_x + gdX[g];
+    for (int y = 0; y < gHeight[g]; y++) for (int x = 0; x < gWidth[g]; x++) {
+      uint8_t a = gFont.gArray[gBitmap[g] + x + gWidth[g] * y];
       if (!a) continue;
       drawPixel(cx + x, cy + y, a == 0xFF ? textcolor : alphaBlend(a, textcolor, textbgcolor));
     }
-    cursor_x += g->adv;
+    cursor_x += gxAdvance[g];
   }
   int16_t drawString(const String& str, int32_t x, int32_t y) {
-    int cw = textWidth(str), ch = fontHeight(), base = maxAscent;
+    int cw = textWidth(str), ch = fontHeight(), base = gFont.maxAscent;
     switch (textdatum) {
       case TC_DATUM: x -= cw / 2; break;
       case TR_DATUM: x -= cw; break;

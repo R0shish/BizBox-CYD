@@ -14,18 +14,21 @@ enum Screen {
 Screen currentScreen = SCREEN_QR;
 
 struct OrderItem {
-  int id;
+  int32_t id;
   String title;
-  uint32_t amount;
-  String status; // "NEW", "PREP", "READY", "PAID"
+  uint32_t amount; // paisa
+  String status;   // one of ORDER_STATUS
+  String ext;      // ID in an external system (Connect), empty for local orders
 };
+static const char* const ORDER_STATUS[4] = {"NEW", "PREP", "READY", "PAID"};
 
 const int MAX_ORDERS = 10;
 OrderItem orders[MAX_ORDERS];
 int orderCount = 0;
-int nextOrderId = 101;
+int32_t nextOrderId = 101;   // persisted with the orders
 
-uint32_t todaySales = 0;        // paid amounts only
+uint32_t todaySales = 0;        // paid amounts only, whole rupees
+uint8_t salesPaisa = 0;         // paisa carried towards the next rupee
 uint32_t totalTransactions = 0; // paid count only
 uint32_t hourly[24] = {0};      // today's paid amounts per hour
 String lastPayHM = "";          // "HH:MM" of the last payment
@@ -51,16 +54,42 @@ struct Cfg {
   String gmailUser;     // Gmail address
   String gmailPass;     // 16-char App Password
   String imapQuery;     // Search filter
+  bool verifyGoogle;    // Check Google's TLS certificate (IMAP + Apps Script)
   String url;           // Apps Script URL (fallback)
   String key;           // Apps Script Secret
   String ssid;
   String pass;
   String adminPin;      // PIN protection
+  String apiToken;      // Bearer token for /api/* (32 hex chars, made on first boot)
+  // Connect (docs/CONNECT.md)
+  String cxHook;        // webhook URL
+  String cxHeader;      // extra header "Name: value" (secret)
+  String cxSecret;      // HMAC signing secret
+  String cxTpl;         // webhook body template, empty = default JSON
+  int cxEvents;         // bitmask: 1 payment.received, 2 order.created, 4 order.status_changed
+  String cxPull;        // pull URL
+  int cxEvery;          // pull interval, seconds
+  String cxPOrders, cxPId, cxPTitle, cxPAmount, cxPStatus, cxPCommands, cxPCursor;   // JSON paths
+  String cxMap;         // status map
+  bool cxSigned;        // reject unsigned pull replies
   bool swapTouch;
   bool invertTouchX;
   bool invertTouchY;
 } cfg;
 
+// App state shared by the loop-side modules
+bool portalMode = false;                // setup hotspot is up
+volatile bool pendingRefresh = false;   // settings saved: redraw + poll now
+uint32_t lastUserActivity = 0;          // last tap/swipe (kiosk auto-flip waits for idle)
+uint32_t lastCycleTick = 0;
+
+// Connect defaults (docs/CONNECT.md)
+const uint8_t CX_EVT_PAYMENT = 1, CX_EVT_ORDER = 2, CX_EVT_STATUS = 4;
+const char* const CX_DEFAULT_MAP =
+    "NEW=new,pending,received,placed; PREP=preparing,processing,in_progress,printing; "
+    "READY=ready,ready_for_pickup,done_printing; PAID=paid,completed,delivered,picked_up; "
+    "REMOVE=cancelled,canceled,deleted,archived";
+
 #define AP_NAME   "BizBox-Setup"
 #define MDNS_NAME "bizbox"
-#define FW_VERSION "3.0"
+#define FW_VERSION "3.1"

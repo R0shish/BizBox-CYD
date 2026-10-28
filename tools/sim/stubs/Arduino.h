@@ -8,6 +8,7 @@
 #include <ctime>
 #include <string>
 #include <algorithm>
+#include <cctype>
 
 using std::min;
 using std::max;
@@ -20,12 +21,16 @@ class String {
   std::string s;
   String() {}
   String(const char* c) : s(c ? c : "") {}
+  String(const char* c, unsigned n) : s(c, n) {}
   String(const std::string& x) : s(x) {}
-  String(char c) : s(1, c) {}
-  String(int v) : s(std::to_string(v)) {}
-  String(unsigned v) : s(std::to_string(v)) {}
-  String(long v) : s(std::to_string(v)) {}
-  String(unsigned long v) : s(std::to_string(v)) {}
+  // Explicit like the real WString.h, so code that only compiles here fails here too
+  explicit String(char c) : s(1, c) {}
+  explicit String(int v) : s(std::to_string(v)) {}
+  explicit String(unsigned v) : s(std::to_string(v)) {}
+  explicit String(long v) : s(std::to_string(v)) {}
+  explicit String(unsigned long v) : s(std::to_string(v)) {}
+  explicit String(long long v) : s(std::to_string(v)) {}
+  explicit String(unsigned long long v) : s(std::to_string(v)) {}
   unsigned length() const { return s.size(); }
   bool reserve(unsigned n) { s.reserve(n); return true; }
   const char* c_str() const { return s.c_str(); }
@@ -46,7 +51,19 @@ class String {
     size_t b = s.find_last_not_of(" \t\r\n");
     s = s.substr(a, b - a + 1);
   }
+  int lastIndexOf(char c) const { auto p = s.rfind(c); return p == std::string::npos ? -1 : (int)p; }
+  char charAt(unsigned i) const { return i < s.size() ? s[i] : 0; }
+  void setCharAt(unsigned i, char c) { if (i < s.size()) s[i] = c; }
+  bool concat(const char* c, unsigned n) { s.append(c, n); return true; }
+  bool concat(const char* c) { if (c) s.append(c); return true; }
+  String& operator=(const char* c) { s = c ? c : ""; return *this; }
+  bool equalsIgnoreCase(const String& o) const {
+    if (o.s.size() != s.size()) return false;
+    for (size_t i = 0; i < s.size(); i++) if (tolower((unsigned char)s[i]) != tolower((unsigned char)o.s[i])) return false;
+    return true;
+  }
   void toUpperCase() { for (auto& c : s) c = toupper((unsigned char)c); }
+  void toLowerCase() { for (auto& c : s) c = tolower((unsigned char)c); }
   void replace(const String& a, const String& b) {
     if (a.s.empty()) return;
     size_t p = 0;
@@ -57,6 +74,12 @@ class String {
   long toInt() const { return atol(s.c_str()); }
   char operator[](unsigned i) const { return s[i]; }
   String& operator+=(const String& o) { s += o.s; return *this; }
+  String& operator+=(const char* o) { s += o; return *this; }
+  String& operator+=(char c) { s += c; return *this; }
+  String& operator+=(int v) { s += std::to_string(v); return *this; }
+  String& operator+=(unsigned v) { s += std::to_string(v); return *this; }
+  String& operator+=(long v) { s += std::to_string(v); return *this; }
+  String& operator+=(unsigned long v) { s += std::to_string(v); return *this; }
   bool operator==(const String& o) const { return s == o.s; }
   bool operator==(const char* o) const { return s == o; }
   bool operator!=(const String& o) const { return s != o.s; }
@@ -65,9 +88,12 @@ class String {
 inline String operator+(const String& a, const String& b) { return String(a.s + b.s); }
 inline String operator+(const String& a, const char* b) { return String(a.s + b); }
 inline String operator+(const char* a, const String& b) { return String(std::string(a) + b.s); }
+inline String operator+(const String& a, char c) { return String(a.s + c); }
 
-inline uint32_t millis() { return 0; }
-inline void delay(uint32_t) {}
+// Simulated clock: only delay() moves it, so timeouts terminate in tests
+inline uint32_t& simClock() { static uint32_t t = 0; return t; }
+inline uint32_t millis() { return simClock(); }
+inline void delay(uint32_t ms) { simClock() += ms; }
 
 // Time: fixed to 13:49:02 so previews are stable
 inline bool getLocalTime(struct tm* t, uint32_t = 0) {
