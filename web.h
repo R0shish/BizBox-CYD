@@ -381,6 +381,7 @@ void handleSave() {
     msg += "<h1>Joining " + esc(cfg.ssid) + ".</h1><p style='color:var(--muted)'>Switch your phone back to your normal Wi-Fi, "
            "then open <a href='http://" MDNS_NAME ".local'>" MDNS_NAME ".local</a>. If that doesn't load, the IP is on the device's Setup screen.</p></main></body></html>";
     server.send(200, "text/html; charset=utf-8", msg);
+    if (ordersDirty) saveOrdersNow();
     delay(1500);
     ESP.restart();
   } else {
@@ -517,6 +518,7 @@ void handleApiClear() {
     }
   }
   orderCount = keep;
+  ordersChanged();
   if (currentScreen == SCREEN_ORDERS) drawScreen();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }

@@ -343,13 +343,88 @@ void recordPayment(uint32_t paisa) {
   saveSales();
 }
 
-void addOrder(const String& title, uint32_t amount, const String& status = "NEW") {
-  if (orderCount < MAX_ORDERS) {
-    orders[orderCount++] = { nextOrderId++, title, amount, status };
-  } else {
-    for (int i = 0; i < MAX_ORDERS - 1; i++) orders[i] = orders[i+1];
-    orders[MAX_ORDERS - 1] = { nextOrderId++, title, amount, status };
+// ---------- Orders in NVS ----------
+// One versioned blob ("orders"): [ver][count][nextId:4] then per order
+// [id:4][paisa:4][status:1][titleLen:1][title][extLen:1][ext]. Saves are
+// debounced so a burst of taps is one flash write.
+const uint8_t ORDERS_BLOB_VER = 1;
+bool ordersDirty = false;
+uint32_t ordersDirtyAt = 0;
+
+int statusIndex(const String& s) {
+  for (int i = 0; i < 4; i++) if (s == ORDER_STATUS[i]) return i;
+  return 0;
+}
+
+void saveOrdersNow() {
+  uint8_t buf[6 + MAX_ORDERS * (10 + 2 * 255)];
+  size_t n = 0;
+  buf[n++] = ORDERS_BLOB_VER;
+  buf[n++] = (uint8_t)orderCount;
+  memcpy(buf + n, &nextOrderId, 4); n += 4;
+  for (int i = 0; i < orderCount; i++) {
+    const OrderItem& o = orders[i];
+    memcpy(buf + n, &o.id, 4); n += 4;
+    memcpy(buf + n, &o.amount, 4); n += 4;
+    buf[n++] = (uint8_t)statusIndex(o.status);
+    String t = utf8Cut(o.title, 64), e = utf8Cut(o.ext, 64);
+    buf[n++] = (uint8_t)t.length(); memcpy(buf + n, t.c_str(), t.length()); n += t.length();
+    buf[n++] = (uint8_t)e.length(); memcpy(buf + n, e.c_str(), e.length()); n += e.length();
   }
+  prefs.begin("cydbiz", false);
+  prefs.putBytes("orders", buf, n);
+  prefs.end();
+  ordersDirty = false;
+}
+
+void loadOrders() {
+  static uint8_t buf[6 + MAX_ORDERS * (10 + 2 * 255)];
+  prefs.begin("cydbiz", true);
+  size_t n = prefs.getBytesLength("orders");
+  if (n >= 6 && n <= sizeof buf) n = prefs.getBytes("orders", buf, n); else n = 0;
+  prefs.end();
+  if (n < 6 || buf[0] != ORDERS_BLOB_VER) return;
+  int count = min((int)buf[1], MAX_ORDERS);
+  size_t p = 2;
+  int32_t nid; memcpy(&nid, buf + p, 4); p += 4;
+  orderCount = 0;
+  for (int i = 0; i < count; i++) {
+    if (p + 10 > n) break;
+    OrderItem o;
+    memcpy(&o.id, buf + p, 4); p += 4;
+    memcpy(&o.amount, buf + p, 4); p += 4;
+    o.status = ORDER_STATUS[buf[p++] & 3];
+    uint8_t tl = buf[p++];
+    if (p + tl + 1 > n) break;
+    o.title = String((const char*)buf + p, tl); p += tl;
+    uint8_t el = buf[p++];
+    if (p + el > n) break;
+    o.ext = String((const char*)buf + p, el); p += el;
+    orders[orderCount++] = o;
+  }
+  if (nid > nextOrderId) nextOrderId = nid;
+}
+
+void ordersChanged() {
+  ordersDirty = true;
+  ordersDirtyAt = millis();
+}
+
+void addOrder(const String& title, uint32_t amount, const String& status = "NEW") {
+  if (orderCount >= MAX_ORDERS) {
+    // Full: drop the oldest PAID order; only if none is paid, the oldest one
+    int drop = 0;
+    for (int i = 0; i < orderCount; i++) if (orders[i].status == "PAID") { drop = i; break; }
+    for (int i = drop; i < orderCount - 1; i++) orders[i] = orders[i + 1];
+    orderCount--;
+  }
+  OrderItem& o = orders[orderCount++];
+  o.id = nextOrderId++;
+  o.title = title;
+  o.amount = amount;
+  o.status = status;
+  o.ext = "";
+  ordersChanged();
   if (status == "PAID") recordPayment(amount);
   if (!portalMode && (currentScreen == SCREEN_ORDERS || currentScreen == SCREEN_STATS)) {
     drawScreen();
@@ -488,6 +563,7 @@ void handleTap(int x, int y) {
         else if (orders[i].status == "PREP") orders[i].status = "READY";
         else if (orders[i].status == "READY") orders[i].status = "PAID";
         else orders[i].status = "NEW";
+        ordersChanged();
         drawScreen();
         break;
       }
@@ -631,6 +707,7 @@ void setup() {
 
   // Load Business Config
   loadCfg();
+  loadOrders();
 
   // Initialize Backlight PWM
   initBacklight();
@@ -689,6 +766,7 @@ void loop() {
 
   handleNetEvents();
   handleAnnouncements();
+  if (ordersDirty && millis() - ordersDirtyAt > 2000) saveOrdersNow();
 
   if (!portalMode) {
     // Live clock in the status bar

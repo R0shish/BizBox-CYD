@@ -19,3 +19,5 @@ g++ -std=gnu++11 -DFULL_CHECK "${INC[@]}" "$ROOT/tools/check/audio_test.cpp" -o 
 "$TMP/audio"
 g++ -std=gnu++11 -Wall -Wextra -Wno-unused-parameter -I"$ROOT/tools/sim/stubs" "$ROOT/tools/check/logic_test.cpp" -o "$TMP/logic"
 "$TMP/logic"
+g++ -std=gnu++11 -DFULL_CHECK -DESP_ARDUINO_VERSION_MAJOR=3 "${INC[@]}" "$ROOT/tools/check/firmware_test.cpp" "$TMP/qr_encode.o" -o "$TMP/firmware"
+"$TMP/firmware"

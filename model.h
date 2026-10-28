@@ -14,16 +14,18 @@ enum Screen {
 Screen currentScreen = SCREEN_QR;
 
 struct OrderItem {
-  int id;
+  int32_t id;
   String title;
   uint32_t amount; // paisa
-  String status; // "NEW", "PREP", "READY", "PAID"
+  String status;   // one of ORDER_STATUS
+  String ext;      // ID in an external system (Connect), empty for local orders
 };
+static const char* const ORDER_STATUS[4] = {"NEW", "PREP", "READY", "PAID"};
 
 const int MAX_ORDERS = 10;
 OrderItem orders[MAX_ORDERS];
 int orderCount = 0;
-int nextOrderId = 101;
+int32_t nextOrderId = 101;   // persisted with the orders
 
 uint32_t todaySales = 0;        // paid amounts only, whole rupees
 uint8_t salesPaisa = 0;         // paisa carried towards the next rupee
