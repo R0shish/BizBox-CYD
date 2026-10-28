@@ -83,6 +83,7 @@ document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));$('#'+id)
 try{localStorage.setItem('tab',id)}catch(e){}}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 function grp(n){n=String(Math.round(n));if(n.length<=3)return n;let t=n.slice(-3),h=n.slice(0,-3);return h.replace(/\B(?=(\d{2})+(?!\d))/g,',')+','+t}
+function amt(n){const r=Math.floor(n),p=Math.round((n-r)*100);return grp(r)+(p?'.'+String(p).padStart(2,'0'):'')}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function addOrder(){const t=$('#p_item').value.trim(),a=parseInt($('#p_amt').value)||0;if(!t){toast('ADD AN ITEM NAME');return}
 fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW'})})
@@ -94,7 +95,7 @@ $('#sales').textContent=grp(s.sales);$('#tx').textContent=s.tx;$('#avg').textCon
 $('#clock').textContent=s.time;$('#imap').textContent=s.imap;$('#ndot').className='dot'+(s.net==3?' err':s.net==2?' sync':'');
 const op=$('#openpill');op.className='pill '+(s.open?'open':'closed');op.textContent=s.open?'Open':'Closed';
 const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div class="'+(h==s.hour?'now':v?'':'zero')+'" style="height:'+(v?Math.max(6,v/mx*100):3)+'%"></div>').join('');
-$('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?grp(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
+$('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
 function refresh(){fetch('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
 if(!document.body.dataset.portal){refresh();setInterval(refresh,5000)}
@@ -143,7 +144,7 @@ String orderRows() {
   String r;
   for (int i = 0; i < orderCount; i++) {
     r += "<div class=row><span class=id>#" + String(orders[i].id) + "</span><span class=t>" + esc(orders[i].title) +
-         "</span><span class=a>" + (orders[i].amount ? fmtAmt(orders[i].amount) : String("-")) +
+         "</span><span class=a>" + (orders[i].amount ? fmtPaisa(orders[i].amount, fmtAmt) : String("-")) +
          "</span><span class='pill s-" + orders[i].status + "'>" + orders[i].status + "</span></div>";
   }
   return r;
@@ -364,7 +365,7 @@ void handleApiState() {
     JsonObject o = os.add<JsonObject>();
     o["id"] = orders[i].id;
     o["title"] = orders[i].title;
-    o["amount"] = orders[i].amount;
+    o["amount"] = orders[i].amount / 100.0;
     o["status"] = orders[i].status;
   }
   String out;
@@ -377,7 +378,7 @@ void handleApiOrder() {
     JsonDocument doc;
     deserializeJson(doc, server.arg("plain"));
     String title = doc["title"] | "New Order";
-    uint32_t amt = doc["amount"] | 0;
+    uint32_t amt = (doc["amount"] | 0) * 100;
     String status = doc["status"] | "NEW";
     addOrder(title, amt, status);
     server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
@@ -390,7 +391,7 @@ void handleApiPayment() {
   if (server.method() == HTTP_POST) {
     JsonDocument doc;
     deserializeJson(doc, server.arg("plain"));
-    uint32_t amt = doc["amount"] | 0;
+    uint32_t amt = (doc["amount"] | 0) * 100;
     String note = doc["note"] | "Instant Payment";
     if (amt > 0) {
       addOrder(note, amt, "PAID");

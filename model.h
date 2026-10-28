@@ -16,7 +16,7 @@ Screen currentScreen = SCREEN_QR;
 struct OrderItem {
   int id;
   String title;
-  uint32_t amount;
+  uint32_t amount; // paisa
   String status; // "NEW", "PREP", "READY", "PAID"
 };
 
@@ -25,7 +25,8 @@ OrderItem orders[MAX_ORDERS];
 int orderCount = 0;
 int nextOrderId = 101;
 
-uint32_t todaySales = 0;        // paid amounts only
+uint32_t todaySales = 0;        // paid amounts only, whole rupees
+uint8_t salesPaisa = 0;         // paisa carried towards the next rupee
 uint32_t totalTransactions = 0; // paid count only
 uint32_t hourly[24] = {0};      // today's paid amounts per hour
 String lastPayHM = "";          // "HH:MM" of the last payment

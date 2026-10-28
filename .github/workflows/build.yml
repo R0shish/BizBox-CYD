@@ -43,7 +43,10 @@ jobs:
       - name: Install libraries
         run: |
           arduino-cli lib update-index
-          arduino-cli lib install "TFT_eSPI" "ArduinoJson@7.4.2" "ESP8266Audio" "ESP8266SAM" "QRCode"
+          arduino-cli lib install "TFT_eSPI" "ArduinoJson@7.4.2" "ESP8266Audio" "QRCode"
+          # ESP8266SAM isn't in the Library Manager index: install it from git
+          arduino-cli config set library.enable_unsafe_install true
+          arduino-cli lib install --git-url https://github.com/earlephilhower/ESP8266SAM.git
           arduino-cli lib list
           cp ci/User_Setup.h "$HOME/Arduino/libraries/TFT_eSPI/User_Setup.h"
 

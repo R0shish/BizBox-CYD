@@ -15,10 +15,10 @@ static void seed() {
   cfg.qrSub = "Scan with eSewa, Khalti or any bank app";
   cfg.volume = 25; cfg.brightness = 80;
   cfg.ssid = "ShopWiFi";
-  orders[0] = {101, "2x Cappuccino", 450, "READY"};
-  orders[1] = {102, "Club Sandwich", 650, "PREP"};
-  orders[2] = {103, "Iced Latte", 220, "NEW"};
-  orders[3] = {104, "Chocolate Croissant Large", 1250, "PAID"};
+  orders[0] = {101, "2x Cappuccino", 45000, "READY"};
+  orders[1] = {102, "Club Sandwich", 65000, "PREP"};
+  orders[2] = {103, "Iced Latte", 22000, "NEW"};
+  orders[3] = {104, "Chocolate Croissant Large", 125000, "PAID"};
   orderCount = 4;
   todaySales = 48650; totalTransactions = 37; lastPayHM = "13:42";
   uint32_t h[24] = {0,0,0,0,0,0,0,1200,3400,5200,4100,3600,6900,5400,2100,0,0,0,0,0,0,0,0,0};
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     ui_drawScreen();
     snprintf(p, sizeof p, "%s/%s.ppm", out, names[s]); tft.savePPM(p);
   }
-  ui_paymentAlert(1250, "eSewa");
+  ui_paymentAlert(125000, "eSewa");
   snprintf(p, sizeof p, "%s/6_payment.ppm", out); tft.savePPM(p);
   ui_bootScreen();
   ui_bootStep(1, "Joining " + cfg.ssid, BOOT_OK);
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
   snprintf(p, sizeof p, "%s/10_orders_empty.ppm", out); tft.savePPM(p);
   currentScreen = SCREEN_PROMO; ui_drawScreen();
   snprintf(p, sizeof p, "%s/11_board_closed.ppm", out); tft.savePPM(p);
-  ui_paymentAlert(125000, "Fonepay transfer from Sita");
+  ui_paymentAlert(12500000, "Fonepay transfer from Sita");
   snprintf(p, sizeof p, "%s/12_payment_big.ppm", out); tft.savePPM(p);
   return 0;
 }

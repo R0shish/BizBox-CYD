@@ -6,6 +6,7 @@
 //  Needs `tft`, the globals in model.h and qrcode.h to be available.
 // ==========================================================================
 #include "fonts.h"
+#include "textutil.h"
 
 #ifndef SMOOTH_FONT
   #warning "Enable SMOOTH_FONT in TFT_eSPI's User_Setup.h for the full design (falls back to built-in fonts)"
@@ -98,7 +99,7 @@ String ui_fit(const String& s, uint8_t f, int maxW) {
   if (ui_w(s, f) <= maxW) return s;
   String t = s;
   while (t.length() > 1) {
-    t.remove(t.length() - 1);
+    utf8PopBack(t);
     t.trim();
     if (ui_w(t + "…", f) <= maxW) return t + "…";
   }
@@ -352,7 +353,7 @@ void ui_drawOrders() {
     bool done = orders[i].status == "PAID";
     tft.fillRect(12, y + 9, 3, 14, sc);
     ui_text("#" + String(orders[i].id), 22, y + 21, FT_MONO, UI_DIM, UI_BG);
-    String amt = orders[i].amount ? fmtAmt(orders[i].amount) : String("-");
+    String amt = orders[i].amount ? fmtPaisa(orders[i].amount, fmtAmt) : String("-");
     int aw = ui_text(amt, 232, y + 21, FT_MONO, done ? UI_MUTED : UI_INK, UI_BG, AL_R);
     ui_text(ui_fit(orders[i].title, FT_BODY, 232 - aw - 10 - 60), 60, y + 21, FT_BODY,
             done ? UI_MUTED : UI_INK, UI_BG);
@@ -498,7 +499,7 @@ void ui_drawScreen() {
 }
 
 // ---------- Payment received takeover ----------
-void ui_paymentAlert(uint32_t amount, const String& note) {
+void ui_paymentAlert(uint32_t paisa, const String& note) {
   tft.fillScreen(UI_BG);
   ui_dotgrid(0, 0, UI_W, 92);   // grid above and below the hero, none behind it
   ui_dotgrid(0, 186, UI_W, 228);
@@ -515,7 +516,8 @@ void ui_paymentAlert(uint32_t amount, const String& note) {
   ui_text("PAYMENT RECEIVED", 160, 104, FT_LABEL, UI_GREEN, UI_BG, AL_C);
 
   // Amount: currency + big digits, centred as one group
-  String digits = fmtAmt(amount);
+  String digits = fmtPaisa(paisa, fmtAmt);
+  uint32_t amount = paisa / 100;
   uint8_t nf = ui_w(digits, FT_HERO) > 250 ? FT_NUM : FT_HERO;
   int cw = ui_w(cfg.currency, FT_HEAD);
   int dw = ui_w(digits, nf);
@@ -529,6 +531,7 @@ void ui_paymentAlert(uint32_t amount, const String& note) {
       float p = (float)f / frames;
       float e = 1 - (1 - p) * (1 - p) * (1 - p);
       String s = fmtAmt((uint32_t)(amount * e));
+      if (paisa % 100) s += "." + two((int)((paisa % 100) * e));
       tft.fillRect(gx + cw + 8, base - 46, UI_W - (gx + cw + 8), 56, UI_BG);
       ui_text(s, gx + cw + 8, base, nf, UI_INK, UI_BG);
       if (f == 1) ui_text(cfg.currency, gx, base, FT_HEAD, UI_MUTED, UI_BG);

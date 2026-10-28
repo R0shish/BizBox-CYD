@@ -10,6 +10,7 @@
 #include <TFT_eSPI.h>
 #include "qrcode.h"
 #include <ESP8266SAM.h>
+#include "textutil.h"
 
 // Fallback font handling
 #ifdef LOAD_FONT4
@@ -165,7 +166,7 @@ uint32_t lastCycleTick = 0;
 
 // Forward declarations
 void drawScreen();
-void announce(uint32_t rupees, const String& note = "");
+void announce(uint32_t paisa, const String& note = "");
 void setScreen(int s);
 void setBacklight(int percent);
 
@@ -231,6 +232,7 @@ void loadCfg() {
   cfg.invertTouchX = prefs.getBool("tinvx", false);
   cfg.invertTouchY = prefs.getBool("tinvy", false);
   todaySales       = prefs.getUInt("sales", 0);
+  salesPaisa       = prefs.getUChar("salesp", 0) % 100;
   totalTransactions= prefs.getUInt("txcount", 0);
   salesDay         = prefs.getInt("sday", -1);
   lastPayHM        = prefs.getString("lastpay", "");
@@ -273,6 +275,7 @@ void saveCfg() {
 void saveSales() {
   prefs.begin("cydbiz", false);
   prefs.putUInt("sales", todaySales);
+  prefs.putUChar("salesp", salesPaisa);
   prefs.putUInt("txcount", totalTransactions);
   prefs.putInt("sday", salesDay);
   prefs.putString("lastpay", lastPayHM);
@@ -287,6 +290,7 @@ void checkDayRollover() {
   if (salesDay == t.tm_yday) return;
   if (salesDay != -1) {
     todaySales = 0;
+    salesPaisa = 0;
     totalTransactions = 0;
     lastPayHM = "";
     memset(hourly, 0, sizeof(hourly));
@@ -296,48 +300,17 @@ void checkDayRollover() {
   if (!portalMode && currentScreen == SCREEN_STATS) drawScreen();
 }
 
-// ---------- Helper Utilities ----------
-String esc(const String& s) {
-  String o;
-  for (size_t i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (c == '&') o += "&amp;"; else if (c == '<') o += "&lt;";
-    else if (c == '>') o += "&gt;"; else if (c == '"') o += "&quot;";
-    else if (c == '\'') o += "&#39;"; else o += c;
-  }
-  return o;
-}
-
-String urlEnc(const String& s) {
-  String o; char b[4];
-  for (size_t i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') o += c;
-    else { snprintf(b, 4, "%%%02X", (uint8_t)c); o += b; }
-  }
-  return o;
-}
-
-String words(uint32_t n) {
-  static const char* ones[] = {"zero","one","two","three","four","five","six","seven","eight","nine","ten",
-    "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"};
-  static const char* tens[] = {"","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"};
-  if (n < 20)       return ones[n];
-  if (n < 100)      return String(tens[n/10]) + (n%10 ? String(" ") + ones[n%10] : String(""));
-  if (n < 1000)     return String(ones[n/100]) + " hundred" + (n%100 ? " " + words(n%100) : String(""));
-  if (n < 100000)   return words(n/1000) + " thousand" + (n%1000 ? " " + words(n%1000) : String(""));
-  if (n < 10000000) return words(n/100000) + " lakh" + (n%100000 ? " " + words(n%100000) : String(""));
-  return words(n/10000000) + " crore" + (n%10000000 ? " " + words(n%10000000) : String(""));
-}
-
-// Count a payment towards today's numbers
-void recordPayment(uint32_t amount) {
-  if (!amount) return;
-  todaySales += amount;
+// Count a payment towards today's numbers. Totals are whole rupees with the
+// paisa carried separately, so 0.50 + 0.50 adds up to one rupee.
+void recordPayment(uint32_t paisa) {
+  if (!paisa) return;
+  uint32_t p = salesPaisa + paisa % 100;
+  todaySales += paisa / 100 + p / 100;
+  salesPaisa = p % 100;
   totalTransactions++;
   struct tm t;
   if (getLocalTime(&t, 0)) {
-    hourly[t.tm_hour] += amount;
+    hourly[t.tm_hour] += (paisa + 50) / 100;
     lastPayHM = two(t.tm_hour) + ":" + two(t.tm_min);
   }
   saveSales();
@@ -384,16 +357,17 @@ void testVoice() {
   playVoice("volume " + String(cfg.volume) + " percent ready");
 }
 
-void announce(uint32_t rupees, const String& note) {
-  ui_paymentAlert(rupees, note);
+void announce(uint32_t paisa, const String& note) {
+  ui_paymentAlert(paisa, note);
 
   String phrase;
+  String said = sayAmount(paisa);
   if (cfg.voiceMode == 0) {
-    phrase = "rupees " + words(rupees) + " received";
+    phrase = (paisa >= 100 ? "rupees " : "") + said + " received";
   } else if (cfg.voiceMode == 1) {
-    phrase = "payment of " + words(rupees) + " confirmed, thank you";
+    phrase = "payment of " + said + " confirmed, thank you";
   } else {
-    phrase = words(rupees) + " received";
+    phrase = said + " received";
   }
   playVoice(phrase);
 
@@ -405,23 +379,6 @@ void announce(uint32_t rupees, const String& note) {
 // ==========================================
 // Gmail Polling (Native IMAP - Direct TLS)
 // ==========================================
-uint32_t extractAmount(const String& s) {
-  String clean = "";
-  bool foundDigit = false;
-  for (size_t i = 0; i < s.length(); i++) {
-    char c = s[i];
-    if (isDigit(c)) {
-      clean += c;
-      foundDigit = true;
-    } else if (foundDigit && (c == ',' || c == '.')) {
-      if (c == '.') break;
-    } else if (foundDigit) {
-      break;
-    }
-  }
-  return clean.toInt();
-}
-
 bool pollGmailIMAP() {
   if (cfg.gmailUser.isEmpty() || cfg.gmailPass.isEmpty()) {
     lastImapStatus = "Credentials missing";
@@ -488,8 +445,10 @@ bool pollGmailIMAP() {
   String subject = "";
   while (client.connected()) {
     String line = client.readStringUntil('\n');
-    if (line.startsWith("Subject:") || line.startsWith("subject:")) {
-      subject = line.substring(8);
+    String lc = line.substring(0, 8);
+    lc.toLowerCase();
+    if (lc == "subject:") {
+      subject = mimeDecodeHeader(line.substring(8));
       subject.trim();
     }
     if (line.startsWith("A04 OK")) break;
@@ -504,13 +463,13 @@ bool pollGmailIMAP() {
   client.print("A06 LOGOUT\r\n");
   client.stop();
 
-  uint32_t amt = extractAmount(subject);
-  if (amt > 0) {
-    addOrder(subject.length() ? subject.substring(0, 22) : "Payment", amt, "PAID");
-    announce(amt, subject.substring(0, 22));
-    lastImapStatus = "Announced " + cfg.currency + " " + String(amt);
+  uint32_t amt = 0;
+  if (parseAmount(subject, amt, cfg.currency)) {
+    addOrder(subject.length() ? utf8Cut(subject, 22) : String("Payment"), amt, "PAID");
+    announce(amt, utf8Cut(subject, 22));
+    lastImapStatus = "Announced " + cfg.currency + " " + fmtPaisa(amt, fmtAmt);
   } else if (subject.length()) {
-    addOrder(subject.substring(0, 22), 0, "NEW");
+    addOrder(utf8Cut(subject, 22), 0, "NEW");
     lastImapStatus = "Notification logged";
   }
   return true;
@@ -537,7 +496,8 @@ void poll() {
           ok = true;
           since = doc["latest"].as<String>();
           for (JsonObject p : doc["payments"].as<JsonArray>()) {
-            uint32_t a = (uint32_t)p["amount"].as<double>();
+            uint32_t a = 0;
+            if (!moneyFromDouble(p["amount"].as<double>(), a)) continue;
             String note = p["from"].as<String>();
             addOrder(note.length() ? note : "eSewa Pay", a, "PAID");
             announce(a, note);
@@ -793,8 +753,8 @@ void loop() {
   if (pendingAmt) {
     uint32_t a = pendingAmt;
     pendingAmt = 0;
-    addOrder("Voice test", a, "PAID");
-    announce(a, "Test");
+    addOrder("Voice test", a * 100, "PAID");
+    announce(a * 100, "Test");
   }
 
   if (pendingRefresh) {
