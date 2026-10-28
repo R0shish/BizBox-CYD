@@ -8,7 +8,7 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
-#include "qrcode.h"
+#include "qr_encode.h"   // ricmoo/QRCode, vendored (see file)
 #include <ESP8266SAM.h>
 #include "textutil.h"
 

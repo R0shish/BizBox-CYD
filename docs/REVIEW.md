@@ -19,6 +19,7 @@ The **Status** column is updated as fixes land.
 | C1 | critical | esp.ino:433, 441–502 | IMAP reads can block for 100 minutes (core 2 `setTimeout` is in **seconds**), and `while (client.connected())` loops never exit on `NO`/`BAD` | open |
 | C2 | critical | web.h:375–403, esp.ino:758–759 | `/api/payment` and `/api/order` have no auth, and they can even be hit cross-site from any web page | open |
 | C3 | critical | web.h:244, 255, 104 | Gmail app password and admin PIN are written into the page; the setup hotspot bypasses the PIN | open |
+| H0 | high | esp.ino:11 | Doesn't build on core 3.x: `#include "qrcode.h"` resolves to ESP-IDF's QR component, not ricmoo/QRCode (found by the new CI build) | open |
 | H1 | high | esp.ino:484–485 | Only one unread email is handled per 15 s poll | open |
 | H2 | high | esp.ino:224, 464, 498, 512–514 | Default `UNSEEN` marks *every* unread email as read and logs non-payments as orders; any number in any subject is announced | open |
 | H3 | high | esp.ino:408–423 | `extractAmount()` takes the first number: dates, IDs and phone numbers get announced | open |
@@ -66,6 +67,10 @@ The **Status** column is updated as fixes land.
 ### C3 · critical · Secrets in the HTML; setup hotspot skips the PIN
 `value='" + esc(cfg.gmailPass) + "'` and `value='" + esc(cfg.adminPin) + "'` put both secrets in the page source. Without a PIN (the default), anyone on the Wi-Fi who opens `bizbox.local` gets a password with full access to the shop's Gmail. `authed()` returns true in `portalMode`, and portal mode is also entered when the router is down at boot (H7). The device then broadcasts an **open** hotspot serving that page.
 **Fix:** secrets are never echoed. Password fields show "saved, leave blank to keep", plus an explicit "clear" checkbox for the PIN. The PIN is enforced in portal mode too (when one is set; a forgotten PIN is what the factory reset is for).
+
+### H0 · high · No build on core 3.x
+Core 3.x ships ESP-IDF's `esp_qrcode` component with its own `qrcode.h` on the include path, so the sketch got that header instead of ricmoo's, and `QRCode`, `qrcode_initText` and `ECC_LOW` were undefined. The CI added in this branch showed it first.
+**Fix:** vendor ricmoo/QRCode (MIT, two files) as `qr_encode.h/.c`. On core 2, ESP8266Audio 2.x also needs core 3's `driver/i2s_std.h`: the README and CI pin 1.9.9 there.
 
 ### H1 · high · One email per poll
 Only the first UID of `* SEARCH` is fetched. Five payments in a minute take 75 s to come through, and each one is announced up to a minute after the customer left.

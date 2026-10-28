@@ -3,7 +3,7 @@
 //  UI for the 320x240 CYD screen
 //  Design language: PrintLab navy + filament accents, rosh.sh mono readouts.
 //  Space Grotesk for headlines and numbers, JetBrains Mono for HUD labels.
-//  Needs `tft`, the globals in model.h and qrcode.h to be available.
+//  Needs `tft`, the globals in model.h and qr_encode.h to be available.
 // ==========================================================================
 #include "fonts.h"
 #include "textutil.h"

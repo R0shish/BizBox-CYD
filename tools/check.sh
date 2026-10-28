@@ -8,9 +8,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 INC=(-I"$ROOT/tools/check/stubs" -I"$ROOT/tools/sim/stubs")
+gcc -c -O1 "$ROOT/qr_encode.c" -o "$TMP/qr_encode.o"
 for core in 2 3; do
   g++ -std=gnu++11 -DFULL_CHECK -DESP_ARDUINO_VERSION_MAJOR=$core -Wall -Wextra -Wno-unused-parameter \
-      "${INC[@]}" "$ROOT/tools/check/main.cpp" -o "$TMP/check$core"
+      "${INC[@]}" "$ROOT/tools/check/main.cpp" "$TMP/qr_encode.o" -o "$TMP/check$core"
   "$TMP/check$core"
   echo "core $core.x: compiles + boots in stubs"
 done
