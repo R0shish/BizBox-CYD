@@ -10,48 +10,48 @@ Severity:
 - **medium**: data loss, reliability or UX defects you hit in normal use.
 - **low**: polish, dead code, hardening.
 
-The **Status** column is updated as fixes land.
+The **Status** column names the commit that fixed each item.
 
 ## Summary table
 
 | ID | Sev | Where | Problem | Status |
 |---|---|---|---|---|
-| C1 | critical | esp.ino:433, 441–502 | IMAP reads can block for 100 minutes (core 2 `setTimeout` is in **seconds**), and `while (client.connected())` loops never exit on `NO`/`BAD` | open |
-| C2 | critical | web.h:375–403, esp.ino:758–759 | `/api/payment` and `/api/order` have no auth, and they can even be hit cross-site from any web page | open |
-| C3 | critical | web.h:244, 255, 104 | Gmail app password and admin PIN are written into the page; the setup hotspot bypasses the PIN | open |
-| C4 | critical | web.h:214–274, 283 | `/save` accepts cross-site form posts: any web page the owner opens can swap the payment QR for its own (found while fixing C2) | open |
-| H0 | high | esp.ino:11 | Doesn't build on core 3.x: `#include "qrcode.h"` resolves to ESP-IDF's QR component, not ricmoo/QRCode (found by the new CI build) | open |
-| H1 | high | esp.ino:484–485 | Only one unread email is handled per 15 s poll | open |
-| H2 | high | esp.ino:224, 464, 498, 512–514 | Default `UNSEEN` marks *every* unread email as read and logs non-payments as orders; any number in any subject is announced | open |
-| H3 | high | esp.ino:408–423 | `extractAmount()` takes the first number: dates, IDs and phone numbers get announced | open |
-| H4 | high | esp.ino:425–517, 519–555, 847–850 | The whole poll (TLS handshake plus 5 round trips) runs on the UI loop: touch, web and the BOOT button freeze for seconds every 15 s | open |
-| H5 | high | esp.ino:491–494 | Subjects are not MIME-decoded or unfolded, so encoded subjects (`=?UTF-8?B?…?=`) lose the amount | open |
-| H6 | high | esp.ino:793–797, web.h:338–343 | The voice test is booked as a real sale and looks and sounds exactly like a real payment | open |
-| H7 | high | esp.ino:769–770, 708–714 | If Wi-Fi isn't up at boot (router slower than the ESP after a power cut), the device stays in setup mode forever | open |
-| H8 | high | web.h:338, 405–427, esp.ino:756, 760–761 | State-changing GET endpoints (`/test`, `/api/reset`, `/api/clear`) can be triggered by any web page (CSRF) | open |
-| M1 | medium | web.h:389–398, esp.ino:387–403 | `announce()` runs inside the HTTP handler: callers wait about 5 s, retry, and announce twice | open |
-| M2 | medium | web.h:380, 393 | `doc["amount"] \| 0`: negative amounts wrap to about 4.29 billion; `500.5` and `"500"` are silently dropped | open |
-| M3 | medium | model.h:24, esp.ino:346 | Orders are lost on every reboot; `nextOrderId` restarts at 101, so IDs repeat | open |
-| M4 | medium | esp.ino:347–352 | A full order list drops the oldest order even when it is unpaid | open |
-| M5 | medium | web.h:158–280 | The dashboard is built as one ~20 KB `String` per request (fragmentation, can fail after TLS) | open |
-| M6 | medium | ui.h:487 | `fillScreen()` on every change makes the whole panel flash on each tap | open |
-| M7 | medium | esp.ino:160, 530, 538, 802 | Apps Script mode: `since` resets to `"0"` on boot and on every Save; a URL that already has a `?` breaks; a missing `latest` becomes `"null"` | open |
-| M8 | medium | esp.ino:432, 527 | `setInsecure()` to Gmail: a MITM on the shop Wi-Fi gets the Gmail app password | open |
-| M9 | medium | web.h:103–108 | No limit on PIN attempts: a 4-digit PIN can be brute-forced over Wi-Fi in minutes | open |
-| M10 | medium | ui.h:61–70 | Every font switch frees, mallocs and re-parses the whole glyph table (dozens per redraw) | open |
-| L1 | low | esp.ino:132–136 | Touch driver prints to Serial every 150 ms while touched | open |
-| L2 | low | esp.ino:509–513, ui.h:101 | UTF-8 cut in the middle of a character (`substring(0,22)`, `remove(len-1)`) draws garbage glyphs | open |
-| L3 | low | esp.ino:767 | `onNotFound` redirects to `192.168.4.1` even on the shop LAN | open |
-| L4 | low | web.h:302, 306; esp.ino:218, 221 | `vmode` and `emode` are not range-checked | open |
-| L5 | low | web.h:379–382 | `/api/order` accepts any status string, unlimited title length, and invalid JSON (which creates "New Order") | open |
-| L6 | low | esp.ino:443 | IMAP `LOGIN` doesn't escape `"` or `\` | open |
-| L7 | low | web.h:340 | `/test?amt=` overflows `int` | open |
-| L8 | low | esp.ino:14–19, 157–158, 803; tools/check/stubs/AudioOutputI2S.h, driver/i2s.h | Dead code: `FONT_BIG`, `lastPollOk`, `timeSynced`, unused stubs | open |
-| L9 | low | esp.ino:777, 839 | Double poll at boot (`setup()` polls, then the first `loop()` polls again) | open |
-| L10 | low | web.h:100 | The dashboard polls `/api/state` every 5 s even in a background tab | open |
-| L11 | low | ui.h:219–247 | The QR is re-encoded on every Pay redraw | open |
-| L12 | low | esp.ino:599–602 | Tapping a PAID order cycles it back to NEW; marking PAID on screen doesn't count the sale while API-PAID does | open |
-| L13 | low | web.h | Basic auth over plain HTTP, and no `Host` check (DNS rebinding) | open |
+| C1 | critical | esp.ino:433, 441–502 | IMAP reads can block for 100 minutes (core 2 `setTimeout` is in **seconds**), and `while (client.connected())` loops never exit on `NO`/`BAD` | fixed `b5fa2db` |
+| C2 | critical | web.h:375–403, esp.ino:758–759 | `/api/payment` and `/api/order` have no auth, and they can even be hit cross-site from any web page | fixed `4ee3f37` |
+| C3 | critical | web.h:244, 255, 104 | Gmail app password and admin PIN are written into the page; the setup hotspot bypasses the PIN | fixed `7f77d26` |
+| C4 | critical | web.h:214–274, 283 | `/save` accepts cross-site form posts: any web page the owner opens can swap the payment QR for its own (found while fixing C2) | fixed `4ee3f37` |
+| H0 | high | esp.ino:11 | Doesn't build on core 3.x: `#include "qrcode.h"` resolves to ESP-IDF's QR component, not ricmoo/QRCode (found by the new CI build) | fixed `ca91af0` |
+| H1 | high | esp.ino:484–485 | Only one unread email is handled per 15 s poll | fixed `b5fa2db` |
+| H2 | high | esp.ino:224, 464, 498, 512–514 | Default `UNSEEN` marks *every* unread email as read and logs non-payments as orders; any number in any subject is announced | fixed `b5fa2db` |
+| H3 | high | esp.ino:408–423 | `extractAmount()` takes the first number: dates, IDs and phone numbers get announced | fixed `3519123` |
+| H4 | high | esp.ino:425–517, 519–555, 847–850 | The whole poll (TLS handshake plus 5 round trips) runs on the UI loop: touch, web and the BOOT button freeze for seconds every 15 s | fixed `b8873be` |
+| H5 | high | esp.ino:491–494 | Subjects are not MIME-decoded or unfolded, so encoded subjects (`=?UTF-8?B?…?=`) lose the amount | fixed `3519123` |
+| H6 | high | esp.ino:793–797, web.h:338–343 | The voice test is booked as a real sale and looks and sounds exactly like a real payment | fixed `6d9a7cf` |
+| H7 | high | esp.ino:769–770, 708–714 | If Wi-Fi isn't up at boot (router slower than the ESP after a power cut), the device stays in setup mode forever | fixed `8c3fbec` |
+| H8 | high | web.h:338, 405–427, esp.ino:756, 760–761 | State-changing GET endpoints (`/test`, `/api/reset`, `/api/clear`) can be triggered by any web page (CSRF) | fixed `4ee3f37` |
+| M1 | medium | web.h:389–398, esp.ino:387–403 | `announce()` runs inside the HTTP handler: callers wait about 5 s, retry, and announce twice | fixed `6d9a7cf` |
+| M2 | medium | web.h:380, 393 | `doc["amount"] \| 0`: negative amounts wrap to about 4.29 billion; `500.5` and `"500"` are silently dropped | fixed `6d9a7cf` |
+| M3 | medium | model.h:24, esp.ino:346 | Orders are lost on every reboot; `nextOrderId` restarts at 101, so IDs repeat | fixed `977d77f` |
+| M4 | medium | esp.ino:347–352 | A full order list drops the oldest order even when it is unpaid | fixed `977d77f` |
+| M5 | medium | web.h:158–280 | The dashboard is built as one ~20 KB `String` per request (fragmentation, can fail after TLS) | fixed `e349e44` (phase 3) |
+| M6 | medium | ui.h:487 | `fillScreen()` on every change makes the whole panel flash on each tap | fixed `14e7dfd` (phase 3) |
+| M7 | medium | esp.ino:160, 530, 538, 802 | Apps Script mode: `since` resets to `"0"` on boot and on every Save; a URL that already has a `?` breaks; a missing `latest` becomes `"null"` | fixed `4fdeba8` |
+| M8 | medium | esp.ino:432, 527 | `setInsecure()` to Gmail: a MITM on the shop Wi-Fi gets the Gmail app password | fixed `b5fa2db` (opt-out) |
+| M9 | medium | web.h:103–108 | No limit on PIN attempts: a 4-digit PIN can be brute-forced over Wi-Fi in minutes | fixed `7f77d26` |
+| M10 | medium | ui.h:61–70 | Every font switch frees, mallocs and re-parses the whole glyph table (dozens per redraw) | fixed `25ba340` (phase 3) |
+| L1 | low | esp.ino:132–136 | Touch driver prints to Serial every 150 ms while touched | fixed `90d63aa` |
+| L2 | low | esp.ino:509–513, ui.h:101 | UTF-8 cut in the middle of a character (`substring(0,22)`, `remove(len-1)`) draws garbage glyphs | fixed `3519123` |
+| L3 | low | esp.ino:767 | `onNotFound` redirects to `192.168.4.1` even on the shop LAN | fixed `8c3fbec` |
+| L4 | low | web.h:302, 306; esp.ino:218, 221 | `vmode` and `emode` are not range-checked | fixed `90d63aa` |
+| L5 | low | web.h:379–382 | `/api/order` accepts any status string, unlimited title length, and invalid JSON (which creates "New Order") | fixed `6d9a7cf` |
+| L6 | low | esp.ino:443 | IMAP `LOGIN` doesn't escape `"` or `\` | fixed `b5fa2db` |
+| L7 | low | web.h:340 | `/test?amt=` overflows `int` | fixed `6d9a7cf` |
+| L8 | low | esp.ino:14–19, 157–158, 803; tools/check/stubs/AudioOutputI2S.h, driver/i2s.h | Dead code: `FONT_BIG`, `lastPollOk`, `timeSynced`, unused stubs | fixed `17e2b99`, `1af13f4` (phase 3) |
+| L9 | low | esp.ino:777, 839 | Double poll at boot (`setup()` polls, then the first `loop()` polls again) | fixed `b8873be` |
+| L10 | low | web.h:100 | The dashboard polls `/api/state` every 5 s even in a background tab | fixed `90d63aa` |
+| L11 | low | ui.h:219–247 | The QR is re-encoded on every Pay redraw | fixed `14e7dfd` (phase 3) |
+| L12 | low | esp.ino:599–602 | Tapping a PAID order cycles it back to NEW; marking PAID on screen doesn't count the sale while API-PAID does | deferred (behaviour choice) |
+| L13 | low | web.h | Basic auth over plain HTTP, and no `Host` check (DNS rebinding) | deferred |
 
 ## Details
 
@@ -166,4 +166,17 @@ TFT_eSPI's `loadFont(array)` calls `unloadFont()` (7 `free`s), then re-reads the
 - **L13** (deferred): serving HTTPS from the ESP32 isn't practical (RAM, certificate distribution). The PIN plus token is the boundary; set a PIN. A `Host` allow-list would break people who reach the box by IP, a custom DNS name or a reverse proxy.
 
 ## Status after the fixes
-To be filled in once phase 2 and 3 land.
+
+Every critical, high and medium item is fixed. Two low items are deferred on purpose (L12, L13, reasons above).
+
+Found and fixed while working on this branch (not in the original code):
+- **API token regenerated on every boot** (`8249db2`): the first version of the token code read it after `prefs.end()`. Caught by making the Preferences stub as strict as the real class; a firmware test now covers it.
+- **`/api/reset` didn't clear the paisa carry** (`14e7dfd`): introduced with paisa support; `resetToday()` now serves both paths.
+- **Tabs off-screen** (`14b8e03`): with the sixth (Connect) tab, System slid off a 390 px phone screen.
+
+How each fix was verified, without hardware:
+- **Real ESP32 builds:** arduino-cli for core 2.0.17 and 3.x on every push (CI).
+- **Desktop builds:** against stubs with `-Wall -Wextra`, for both cores.
+- **Unit tests:** 145 logic tests (amount parsing on real-world subject formats, MIME, words, IMAP response parsing, templates, status maps) and 66 firmware tests (orders, NVS, token, sales, Connect) against the real ArduinoJson.
+- **Pixel checks:** every full screen render is pixel-identical to before (except the version label), and every partial redraw matches a full redraw.
+- **Byte checks:** the streamed dashboard HTML is byte-identical to the old one-String page.
