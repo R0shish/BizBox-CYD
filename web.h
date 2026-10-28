@@ -101,7 +101,7 @@ const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div 
 $('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
 function refresh(){api('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
-if(!document.body.dataset.portal){refresh();setInterval(refresh,5000)}
+if(!document.body.dataset.portal){refresh();setInterval(()=>{if(!document.hidden)refresh()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()})}
 )JS";
 
 // Admin PIN (HTTP Basic, user "admin"). Also enforced in setup mode: that
@@ -351,11 +351,11 @@ void handleSave() {
     cfg.brightness = constrain(server.arg("bright").toInt(), 10, 100);
     setBacklight(cfg.brightness);
   }
-  if (server.hasArg("vmode"))  cfg.voiceMode = server.arg("vmode").toInt();
+  if (server.hasArg("vmode"))  cfg.voiceMode = constrain((int)server.arg("vmode").toInt(), 0, 2);
   if (server.hasArg("cycle"))  cfg.autoCycle = (server.arg("cycle") == "1");
   if (server.hasArg("csec"))   cfg.cycleSecs = constrain(server.arg("csec").toInt(), 5, 120);
 
-  if (server.hasArg("emode"))  cfg.emailMode = server.arg("emode").toInt();
+  if (server.hasArg("emode"))  cfg.emailMode = constrain((int)server.arg("emode").toInt(), 0, 2);
   if (server.hasArg("guser"))  { cfg.gmailUser = server.arg("guser"); cfg.gmailUser.trim(); }
   // Secrets are never sent back to the browser, so blank means "keep"
   if (server.arg("gpass").length()) { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }

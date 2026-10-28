@@ -133,13 +133,6 @@ public:
 
     screenX = constrain(mx, 0, 319);
     screenY = constrain(my, 0, 239);
-
-    static uint32_t lastDbg = 0;
-    if (millis() - lastDbg > 150) {
-      lastDbg = millis();
-      Serial.printf("[TOUCH] Raw X=%d Y=%d Z=%d => Screen (%d, %d)\n", rx, ry, rz, screenX, screenY);
-    }
-
     return true;
   }
 };
@@ -267,6 +260,8 @@ void loadCfg() {
   if (cfg.volume < 5 || cfg.volume > 100) cfg.volume = 25;
   if (cfg.brightness < 10 || cfg.brightness > 100) cfg.brightness = 80;
   if (cfg.cycleSecs < 5 || cfg.cycleSecs > 120) cfg.cycleSecs = 15;
+  cfg.voiceMode = constrain(cfg.voiceMode, 0, 2);
+  cfg.emailMode = constrain(cfg.emailMode, 0, 2);
 }
 
 void saveCfg() {
