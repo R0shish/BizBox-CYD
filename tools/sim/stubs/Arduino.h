@@ -55,6 +55,8 @@ class String {
   char charAt(unsigned i) const { return i < s.size() ? s[i] : 0; }
   void setCharAt(unsigned i, char c) { if (i < s.size()) s[i] = c; }
   bool concat(const char* c, unsigned n) { s.append(c, n); return true; }
+  bool concat(const char* c) { if (c) s.append(c); return true; }
+  String& operator=(const char* c) { s = c ? c : ""; return *this; }
   bool equalsIgnoreCase(const String& o) const {
     if (o.s.size() != s.size()) return false;
     for (size_t i = 0; i < s.size(); i++) if (tolower((unsigned char)s[i]) != tolower((unsigned char)o.s[i])) return false;

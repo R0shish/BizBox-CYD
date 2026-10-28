@@ -11,8 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Get ArduinoJson (header-only, used by the desktop checks)
+        run: git clone --depth 1 --branch v7.4.2 https://github.com/bblanchon/ArduinoJson "$RUNNER_TEMP/ArduinoJson"
       - name: Compile against stubs (core 2 + 3) and run unit tests
-        run: tools/check.sh
+        run: ARDUINOJSON_SRC="$RUNNER_TEMP/ArduinoJson/src" tools/check.sh
 
   firmware:
     name: firmware (core ${{ matrix.core }})
