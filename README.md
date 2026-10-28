@@ -63,4 +63,8 @@ tools/preview.sh --web  # also screenshot the phone dashboard (needs Playwright)
 python3 tools/fonts/gen_fonts.py   # regenerate fonts.h after changing sizes/weights
 ```
 
-Fonts: Space Grotesk and JetBrains Mono, SIL Open Font License 1.1 (see `tools/fonts/`).
+Font sources and their licenses are in `tools/fonts/`.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The bundled fonts (Space Grotesk, JetBrains Mono) are under the SIL Open Font License 1.1.
