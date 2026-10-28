@@ -9,9 +9,7 @@
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
 #include "qrcode.h"
-#include <AudioOutputI2S.h>
 #include <ESP8266SAM.h>
-#include "driver/i2s.h"
 
 // Fallback font handling
 #ifdef LOAD_FONT4
@@ -153,6 +151,7 @@ Preferences prefs;
 
 #include "model.h"
 #include "ui.h"
+#include "speaker.h"
 
 bool portalMode = false;
 bool lastPollOk = true;
@@ -175,24 +174,13 @@ float getAudioGain() {
   return constrain(((float)cfg.volume / 100.0f) * 0.40f, 0.02f, 0.45f);
 }
 
-// ---------- Isolated Audio Synthesizer (Leaves GPIO 25 Free For Touch!) ----------
+// ---------- Voice: SAM speech straight to the DAC on GPIO26 (see speaker.h) ----------
 void playVoice(const String& phrase) {
-  // 1. Temporarily initialize AudioOutputI2S on internal DAC
-  AudioOutputI2S* out = new AudioOutputI2S(0, AudioOutputI2S::INTERNAL_DAC);
-  out->SetOutputModeMono(true);
-  out->SetGain(getAudioGain());
-  i2s_set_dac_mode(I2S_DAC_CHANNEL_LEFT_EN); // Speaker is GPIO 26 only
-
+  CYDSpeaker out;
+  out.SetGain(getAudioGain());
   ESP8266SAM sam;
-  sam.Say(out, phrase.c_str());
-  out->stop();
-  delete out;
-
-  // 2. Tear down I2S driver so GPIO 25 is completely released back for Touch Clock!
-  i2s_driver_uninstall(I2S_NUM_0);
-
-  // 3. Re-assert Touch CLK and CS pins
-  touch.begin();
+  sam.Say(&out, phrase.c_str());
+  out.stop();
 }
 
 // ---------- Display Backlight PWM Dimmer ----------
