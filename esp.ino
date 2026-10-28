@@ -154,14 +154,11 @@ Preferences prefs;
 #include "ui.h"
 #include "speaker.h"
 #include "imap.h"
+#include "net.h"
 
 bool portalMode = false;
-bool lastPollOk = true;
 bool timeSynced = false;
-String lastImapStatus = "Idle";
-String since = "0";
 ImapState imapState = {0, 0};   // where the IMAP reader is in the mailbox (NVS guidv/guid)
-bool pollAgainSoon = false;     // more new mail is waiting
 volatile uint32_t pendingAmt = 0;
 volatile bool pendingRefresh = false;
 uint32_t lastUserActivity = 0;
@@ -384,70 +381,16 @@ void announce(uint32_t paisa, const String& note) {
 }
 
 // ==========================================
-// Gmail Polling (Native IMAP - Direct TLS)
+// Events from the network task (see net.h)
 // ==========================================
-void saveImapState() {
-  prefs.begin("cydbiz", false);
-  prefs.putULong("guidv", imapState.uidValidity);
-  prefs.putULong("guid", imapState.lastUid);
-  prefs.end();
-}
-
-bool pollGmailIMAP() {
-  ImapCfg c = {cfg.gmailUser, cfg.gmailPass, cfg.imapQuery, cfg.currency, cfg.verifyGoogle};
-  ImapResult r;
-  ImapState st = imapState;
-  bool ok = imapPoll(c, st, r, (uint32_t)time(nullptr));
-  lastImapStatus = r.status;
-  for (int i = 0; i < r.count; i++) {
-    addOrder(r.pays[i].title, r.pays[i].paisa, "PAID");
-    if (!r.pays[i].stale) announce(r.pays[i].paisa, r.pays[i].note);
-  }
-  if (st.uidValidity != imapState.uidValidity || st.lastUid != imapState.lastUid) {
-    imapState = st;
-    saveImapState();
-  }
-  pollAgainSoon = r.more;
-  return ok;
-}
-
-void poll() {
-  bool ok = false;
-  if (cfg.emailMode != 2) setNet(NET_SYNC);
-  if (cfg.emailMode == 0) {
-    ok = pollGmailIMAP();
-  } else if (cfg.emailMode == 1) {
-    if (!cfg.url.isEmpty()) {
-      WiFiClientSecure client;
-      client.setInsecure();
-      HTTPClient http;
-      http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-      String u = cfg.url + "?key=" + urlEnc(cfg.key) + "&since=" + since;
-      if (cfg.imapQuery.length()) u += "&q=" + urlEnc(cfg.imapQuery);
-      http.begin(client, u);
-      int code = http.GET();
-      if (code == 200) {
-        JsonDocument doc;
-        if (!deserializeJson(doc, http.getString()) && !doc["error"].is<const char*>()) {
-          ok = true;
-          since = doc["latest"].as<String>();
-          for (JsonObject p : doc["payments"].as<JsonArray>()) {
-            uint32_t a = 0;
-            if (!moneyFromDouble(p["amount"].as<double>(), a)) continue;
-            String note = p["from"].as<String>();
-            addOrder(note.length() ? note : "eSewa Pay", a, "PAID");
-            announce(a, note);
-          }
-        }
-      }
-      http.end();
+void handleNetEvents() {
+  NetEvent e;
+  while (netQueue && xQueueReceive(netQueue, &e, 0) == pdTRUE) {
+    if (e.type == EV_PAYMENT) {
+      addOrder(e.title[0] ? String(e.title) : String("Payment"), e.paisa, "PAID");
+      if (!e.stale) announce(e.paisa, e.note);
     }
-  } else {
-    ok = true;
   }
-
-  lastPollOk = ok;
-  setNet(ok ? NET_OK : NET_ERR);
 }
 
 // ==========================================
@@ -670,8 +613,8 @@ void setup() {
     }
     netState = NET_OK;
     drawScreen();
-    poll();
   }
+  netBegin(imapState);
 
   server.begin();
   lastUserActivity = millis();
@@ -695,11 +638,11 @@ void loop() {
 
   if (pendingRefresh) {
     pendingRefresh = false;
-    since = "0";
-    lastPollOk = true;
     drawScreen();
-    poll();
+    netPollNow = true;
   }
+
+  handleNetEvents();
 
   if (!portalMode) {
     // Live clock in the status bar
@@ -731,8 +674,7 @@ void loop() {
       }
     }
 
-    // Polling scheduler
-    static uint32_t lastPoll = 0;
+    // Polling runs in the network task; the loop only shows its state
     if (WiFi.status() != WL_CONNECTED) {
       setNet(NET_ERR);
       static uint32_t lastReconnect = 0;
@@ -740,9 +682,8 @@ void loop() {
         lastReconnect = millis();
         WiFi.reconnect();
       }
-    } else if (millis() - lastPoll > (pollAgainSoon ? 1000UL : 15000UL)) {
-      lastPoll = millis();
-      poll();
+    } else {
+      setNet((NetState)netDot);
     }
   }
 

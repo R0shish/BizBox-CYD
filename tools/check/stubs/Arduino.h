@@ -35,3 +35,24 @@ inline void timerAlarmEnable(hw_timer_t*) {}
 inline void timerEnd(hw_timer_t*) {}
 inline void dacWrite(uint8_t, uint8_t) {}
 inline void ledcAttach(int, int, int) {}
+
+// FreeRTOS (pulled in by Arduino.h on the ESP32). The task never runs here.
+typedef void* QueueHandle_t; typedef void* SemaphoreHandle_t; typedef void* TaskHandle_t;
+typedef uint32_t TickType_t; typedef int BaseType_t;
+#define pdTRUE 1
+#define pdFALSE 0
+#define pdPASS 1
+#define portMAX_DELAY 0xFFFFFFFFu
+#define pdMS_TO_TICKS(ms) ((TickType_t)(ms))
+struct portMUX_TYPE { int x; };
+#define portMUX_INITIALIZER_UNLOCKED {0}
+#define portENTER_CRITICAL(m) ((void)(m))
+#define portEXIT_CRITICAL(m) ((void)(m))
+inline QueueHandle_t xQueueCreate(uint32_t, uint32_t) { return (QueueHandle_t)1; }
+inline BaseType_t xQueueSend(QueueHandle_t, const void*, TickType_t) { return pdTRUE; }
+inline BaseType_t xQueueReceive(QueueHandle_t, void*, TickType_t) { return pdFALSE; }
+inline SemaphoreHandle_t xSemaphoreCreateMutex() { return (SemaphoreHandle_t)1; }
+inline BaseType_t xSemaphoreTake(SemaphoreHandle_t, TickType_t) { return pdTRUE; }
+inline BaseType_t xSemaphoreGive(SemaphoreHandle_t) { return pdTRUE; }
+inline BaseType_t xTaskCreatePinnedToCore(void (*)(void*), const char*, uint32_t, void*, uint32_t, TaskHandle_t*, BaseType_t) { return pdPASS; }
+inline void vTaskDelay(TickType_t) {}

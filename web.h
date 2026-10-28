@@ -247,7 +247,7 @@ void handleRoot() {
        "<label>Search filter</label><input name=query value='" + esc(cfg.imapQuery) + "' placeholder='UNSEEN FROM \"esewa\"' class=mono>"
        "<small>Only emails whose subject reads like a payment (\"Rs 500 received\") are announced and marked read. Everything else stays unread.</small>"
        "<label class=check><input type=checkbox name=gtls value=1" + chk(cfg.verifyGoogle) + "> Verify Google's certificate</label>"
-       "<div class=stat>STATUS · <span id=imap>" + esc(lastImapStatus) + "</span></div>"
+       "<div class=stat>STATUS · <span id=imap>" + esc(netStatus()) + "</span></div>"
        "<button class=btn>Save</button></div></form></section>";
 
   // 05 System
@@ -285,6 +285,7 @@ void handleRoot() {
 
 void handleSave() {
   if (!authed()) return;
+  CfgLock lock;   // the network task reads these fields
   String nssid = server.arg("ssid"), npass = server.arg("pass");
   bool wifiChanged = (nssid.length() && nssid != cfg.ssid) || npass.length();
   if (nssid.length()) cfg.ssid = nssid;
@@ -359,7 +360,7 @@ void handleApiState() {
   doc["cur"] = cfg.currency;
   doc["time"] = ui_clockText();
   doc["hour"] = tv ? t.tm_hour : -1;
-  doc["imap"] = lastImapStatus;
+  doc["imap"] = netStatus();
   doc["net"] = (int)netState;
   JsonArray hr = doc["hourly"].to<JsonArray>();
   for (int i = 0; i < 24; i++) hr.add(hourly[i]);
