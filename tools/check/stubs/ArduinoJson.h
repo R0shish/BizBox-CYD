@@ -5,6 +5,7 @@ struct JsonVariant {
   template <class T> JsonVariant& operator=(const T&) { return *this; }
   template <class T> T as() const { return T(); }
   template <class T> bool is() const { return false; }
+  bool isNull() const { return true; }
   template <class T> T to() { return T(); }
   JsonVariant operator[](const char*) const { return {}; }
   String operator|(const char* d) const { return d; }

@@ -95,17 +95,18 @@ static bool netPollGmail(const PollCfg& c, bool& more) {
   return ok;
 }
 
-String netSince = "0";
+String netSince = "0";   // Apps Script cursor (NVS "since"), owned by the net task
 
 static bool netPollAppsScript(const PollCfg& c) {
   if (c.url.isEmpty()) { netSetStatus("Apps Script URL missing"); return false; }
   WiFiClientSecure client;
-  client.setInsecure();
+  if (c.imap.verifyTls) client.setCACert(GOOGLE_ROOTS_PEM);   // script.google.com is on GTS too
+  else client.setInsecure();
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setConnectTimeout(10000);
   http.setTimeout(10000);
-  String u = c.url + "?key=" + urlEnc(c.key) + "&since=" + netSince;
+  String u = c.url + (c.url.indexOf('?') >= 0 ? "&" : "?") + "key=" + urlEnc(c.key) + "&since=" + urlEnc(netSince);
   if (c.imap.query.length()) u += "&q=" + urlEnc(c.imap.query);
   bool ok = false;
   if (http.begin(client, u)) {
@@ -114,7 +115,17 @@ static bool netPollAppsScript(const PollCfg& c) {
       JsonDocument doc;
       if (!deserializeJson(doc, http.getString()) && !doc["error"].is<const char*>()) {
         ok = true;
-        netSince = doc["latest"].as<String>();
+        JsonVariant latest = doc["latest"];
+        if (!latest.isNull()) {
+          String ns = latest.as<String>();
+          if (ns.length() && ns != netSince) {
+            netSince = ns;
+            Preferences p;
+            p.begin("cydbiz", false);
+            p.putString("since", ns);
+            p.end();
+          }
+        }
         int n = 0;
         for (JsonObject p : doc["payments"].as<JsonArray>()) {
           uint32_t a = 0;
@@ -167,8 +178,9 @@ void netTask(void*) {
   }
 }
 
-void netBegin(const ImapState& st) {
+void netBegin(const ImapState& st, const String& since) {
   netImapState = st;
+  netSince = since.length() ? since : String("0");
   netQueue = xQueueCreate(12, sizeof(NetEvent));
   cfgLock = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(netTask, "net", 16384, nullptr, 1, nullptr, 0);

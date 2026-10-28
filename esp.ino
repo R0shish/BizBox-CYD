@@ -159,6 +159,7 @@ Preferences prefs;
 bool portalMode = false;
 bool timeSynced = false;
 ImapState imapState = {0, 0};   // where the IMAP reader is in the mailbox (NVS guidv/guid)
+String appsScriptSince = "0";   // Apps Script cursor (NVS since)
 volatile uint32_t pendingAmt = 0;
 volatile bool pendingRefresh = false;
 uint32_t lastUserActivity = 0;
@@ -226,6 +227,7 @@ void loadCfg() {
   cfg.verifyGoogle = prefs.getBool("gtls", true);
   imapState.uidValidity = prefs.getULong("guidv", 0);
   imapState.lastUid     = prefs.getULong("guid", 0);
+  appsScriptSince       = prefs.getString("since", "0");
   cfg.url          = prefs.getString("url", "");
   cfg.key          = prefs.getString("key", "");
   cfg.ssid         = prefs.getString("ssid", "");
@@ -614,7 +616,7 @@ void setup() {
     netState = NET_OK;
     drawScreen();
   }
-  netBegin(imapState);
+  netBegin(imapState, appsScriptSince);
 
   server.begin();
   lastUserActivity = millis();
