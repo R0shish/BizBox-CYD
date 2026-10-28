@@ -53,7 +53,8 @@ class CYDSpeaker : public AudioOutput {
 
   bool begin() override {
     if (spk::timer) return true;
-    spk::head = spk::tail = 0;
+    spk::head = 0;                    // separate stores: C++20 deprecates chained volatile assignment
+    spk::tail = 0;
     dacWrite(PIN, 0);                 // powers up DAC2 and routes it to the pad
     spk::ramp(0, 128);                // rest at mid-scale = silence
     uint32_t period = 40000000UL / (hertz ? hertz : 22050);

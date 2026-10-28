@@ -168,6 +168,9 @@ void saveSales() {
 // [id:4][paisa:4][status:1][titleLen:1][title][extLen:1][ext]. Saves are
 // debounced so a burst of taps is one flash write.
 const uint8_t ORDERS_BLOB_VER = 1;
+const unsigned ORDER_TEXT_MAX = 64;     // title / ext bytes kept in flash
+// Shared by save and load; static so it never sits on the loop task's 8 KB stack
+static uint8_t ordersBlob[6 + MAX_ORDERS * (10 + 2 * ORDER_TEXT_MAX)];
 bool ordersDirty = false;
 uint32_t ordersDirtyAt = 0;
 
@@ -177,7 +180,7 @@ int statusIndex(const String& s) {
 }
 
 void saveOrdersNow() {
-  uint8_t buf[6 + MAX_ORDERS * (10 + 2 * 255)];
+  uint8_t* buf = ordersBlob;
   size_t n = 0;
   buf[n++] = ORDERS_BLOB_VER;
   buf[n++] = (uint8_t)orderCount;
@@ -187,7 +190,7 @@ void saveOrdersNow() {
     memcpy(buf + n, &o.id, 4); n += 4;
     memcpy(buf + n, &o.amount, 4); n += 4;
     buf[n++] = (uint8_t)statusIndex(o.status);
-    String t = utf8Cut(o.title, 64), e = utf8Cut(o.ext, 64);
+    String t = utf8Cut(o.title, ORDER_TEXT_MAX), e = utf8Cut(o.ext, ORDER_TEXT_MAX);
     buf[n++] = (uint8_t)t.length(); memcpy(buf + n, t.c_str(), t.length()); n += t.length();
     buf[n++] = (uint8_t)e.length(); memcpy(buf + n, e.c_str(), e.length()); n += e.length();
   }
@@ -198,10 +201,10 @@ void saveOrdersNow() {
 }
 
 void loadOrders() {
-  static uint8_t buf[6 + MAX_ORDERS * (10 + 2 * 255)];
+  uint8_t* buf = ordersBlob;
   prefs.begin("cydbiz", true);
   size_t n = prefs.getBytesLength("orders");
-  if (n >= 6 && n <= sizeof buf) n = prefs.getBytes("orders", buf, n); else n = 0;
+  if (n >= 6 && n <= sizeof ordersBlob) n = prefs.getBytes("orders", buf, n); else n = 0;
   prefs.end();
   if (n < 6 || buf[0] != ORDERS_BLOB_VER) return;
   int count = min((int)buf[1], MAX_ORDERS);

@@ -27,6 +27,7 @@ static void orders_tests() {
   addOrder("another", 0, "NEW");    // nothing paid left: oldest goes
   EXPECT(orders[0].title == "o1", "oldest dropped when none paid: %s", orders[0].title.c_str());
 
+  orders[1].title = String(std::string(200, 'x'));    // over the cap: stored cut, not overflowing
   orders[2].ext = "ext-42";
   orders[2].title = "Caf\xC3\xA9 latte";
   int32_t next = nextOrderId;
@@ -34,6 +35,7 @@ static void orders_tests() {
   OrderItem snapshot[MAX_ORDERS];
   int n = orderCount;
   for (int i = 0; i < n; i++) snapshot[i] = orders[i];
+  snapshot[1].title = utf8Cut(snapshot[1].title, ORDER_TEXT_MAX);
   orderCount = 0; nextOrderId = 101;
   loadOrders();
   EXPECT(orderCount == n, "reload count %d vs %d", orderCount, n);
