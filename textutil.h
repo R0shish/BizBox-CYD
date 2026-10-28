@@ -409,3 +409,101 @@ bool parseImapDate(const String& s, uint32_t& epoch) {
   epoch = (uint32_t)t;
   return true;
 }
+
+// ---------- IMAP response parsing ----------
+// Display name of a From header: "\"eSewa\" <no-reply@esewa.com.np>" -> "eSewa",
+// "alerts@fonepay.com" -> "fonepay.com"
+String fromName(const String& from) {
+  String f = mimeDecodeHeader(from);
+  f.trim();
+  int lt = f.indexOf('<');
+  String name = lt >= 0 ? f.substring(0, lt) : String("");
+  name.trim();
+  if (name.length() >= 2 && name[0] == '"' && name[name.length() - 1] == '"') name = name.substring(1, name.length() - 1);
+  name.trim();
+  if (name.length()) return name;
+  String addr = lt >= 0 ? f.substring(lt + 1) : f;
+  int gt = addr.indexOf('>');
+  if (gt >= 0) addr = addr.substring(0, gt);
+  int at = addr.indexOf('@');
+  return at >= 0 ? addr.substring(at + 1) : addr;
+}
+
+// Numbers after "* SEARCH" that are > after, ascending, at most max of them.
+// Returns how many matched in total (may be more than max).
+int imapSearchUids(const String& line, uint32_t after, uint32_t* out, int max) {
+  int total = 0, n = 0;
+  const char* p = line.c_str();
+  const char* s = strstr(p, "SEARCH");
+  if (!s) return 0;
+  s += 6;
+  while (*s) {
+    while (*s == ' ') s++;
+    if (!isdigit((uint8_t)*s)) { while (*s && *s != ' ') s++; continue; }
+    uint32_t v = 0;
+    while (isdigit((uint8_t)*s)) v = v * 10 + (uint32_t)(*s++ - '0');
+    if (v <= after) continue;
+    total++;
+    // keep the lowest `max` UIDs, sorted
+    if (n < max) out[n++] = v;
+    else if (v < out[n - 1]) out[n - 1] = v;
+    else continue;
+    for (int i = n - 1; i > 0 && out[i] < out[i - 1]; i--) { uint32_t t = out[i]; out[i] = out[i - 1]; out[i - 1] = t; }
+  }
+  return total;
+}
+
+// "[UIDVALIDITY 123]" / "[UIDNEXT 456]" in a SELECT response line
+bool imapRespCode(const String& line, const char* code, uint32_t& v) {
+  String key = String("[") + code + " ";
+  int i = line.indexOf(key);
+  if (i < 0) return false;
+  v = strtoul(line.c_str() + i + key.length(), nullptr, 10);
+  return true;
+}
+
+// Feeds on the lines of a UID FETCH (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)])
+// response and collects one record per message. Handles folded headers and
+// a UID that comes before or after the header literal.
+struct ImapMsg { uint32_t uid; String date, subject, from; };
+struct ImapFetchParser {
+  ImapMsg* msgs; int max; int count = 0;
+  bool inMsg = false; char lastHdr = 0;   // 's' subject, 'f' from
+  ImapFetchParser(ImapMsg* m, int mx) : msgs(m), max(mx) {}
+
+  static uint32_t uidIn(const String& l) {
+    int i = l.indexOf("UID ");
+    return i >= 0 ? strtoul(l.c_str() + i + 4, nullptr, 10) : 0;
+  }
+  void line(const String& raw) {
+    String l = raw;
+    while (l.length() && (l[l.length() - 1] == '\r' || l[l.length() - 1] == '\n')) l.remove(l.length() - 1);
+    if (l.startsWith("* ") && l.indexOf(" FETCH (") > 0) {
+      if (count >= max) { inMsg = false; return; }
+      ImapMsg& m = msgs[count++];
+      m = ImapMsg();
+      m.uid = uidIn(l);
+      int d = l.indexOf("INTERNALDATE \"");
+      if (d >= 0) { int e = l.indexOf('"', d + 14); if (e > d) m.date = l.substring(d + 14, e); }
+      inMsg = true; lastHdr = 0;
+      return;
+    }
+    if (!inMsg || !count) return;
+    ImapMsg& m = msgs[count - 1];
+    if (l.length() && l[0] == ')') { inMsg = false; return; }
+    if (l.length() && (l[0] == ' ' || l[0] == '\t')) {
+      // a header continuation line, or " UID 12)" closing the FETCH
+      String t = l; t.trim();
+      if (t.startsWith("UID ") && t.endsWith(")")) { if (!m.uid) m.uid = uidIn(t); inMsg = false; return; }
+      if (lastHdr == 's') m.subject += l;      // RFC 5322 unfolding keeps the whitespace
+      else if (lastHdr == 'f') m.from += l;
+      return;
+    }
+    int c = l.indexOf(':');
+    if (c <= 0) { lastHdr = 0; return; }
+    String k = l.substring(0, c); k.toLowerCase();
+    if (k == "subject") { m.subject = l.substring(c + 1); lastHdr = 's'; }
+    else if (k == "from") { m.from = l.substring(c + 1); lastHdr = 'f'; }
+    else lastHdr = 0;
+  }
+};

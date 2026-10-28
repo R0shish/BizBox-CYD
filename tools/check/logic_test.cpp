@@ -161,7 +161,55 @@ static void date_tests() {
   EXPECT(!parseImapDate("garbage", t), "garbage");
 }
 
+static void imap_tests() {
+  eqStr(fromName("\"eSewa\" <no-reply@esewa.com.np>"), "eSewa", "from quoted");
+  eqStr(fromName("Fonepay Alerts <alerts@fonepay.com>"), "Fonepay Alerts", "from bare name");
+  eqStr(fromName("alerts@fonepay.com"), "fonepay.com", "from address only");
+  eqStr(fromName("<x@khalti.com>"), "khalti.com", "from angle only");
+  eqStr(fromName("=?UTF-8?B?S2hhbHRp?= <a@khalti.com>"), "Khalti", "from encoded");
+
+  uint32_t u[3];
+  int n = imapSearchUids("* SEARCH 9 4 12 7 15 3", 4, u, 3);
+  EXPECT(n == 4 && u[0] == 7 && u[1] == 9 && u[2] == 12, "search: n=%d %u %u %u", n, u[0], u[1], u[2]);
+  n = imapSearchUids("* SEARCH", 0, u, 3);
+  EXPECT(n == 0, "empty search");
+  n = imapSearchUids("* SEARCH 5", 5, u, 3);           // "n:*" always returns the last UID
+  EXPECT(n == 0, "uid range quirk");
+
+  uint32_t v = 0;
+  EXPECT(imapRespCode("* OK [UIDVALIDITY 594] UIDs valid.", "UIDVALIDITY", v) && v == 594, "uidvalidity");
+  EXPECT(imapRespCode("* OK [UIDNEXT 3410] Predicted next UID.", "UIDNEXT", v) && v == 3410, "uidnext");
+  EXPECT(!imapRespCode("* 12 EXISTS", "UIDNEXT", v), "no code");
+
+  ImapMsg m[3];
+  ImapFetchParser p(m, 3);
+  const char* lines[] = {
+    "* 3 FETCH (UID 101 INTERNALDATE \"12-May-2024 13:42:05 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {120}\r\n",
+    "Subject: =?UTF-8?B?UnMgNTAwIHJl?=\r\n",
+    " =?UTF-8?B?Y2VpdmVk?=\r\n",
+    "From: \"eSewa\" <no-reply@esewa.com.np>\r\n",
+    "\r\n",
+    ")\r\n",
+    "* 4 FETCH (INTERNALDATE \"12-May-2024 13:50:00 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {60}\r\n",
+    "FROM: alerts@fonepay.com\r\n",
+    "SUBJECT: NPR 1,200 received\r\n",
+    "\r\n",
+    " UID 102)\r\n",
+    "a4 OK Success\r\n",
+  };
+  for (const char* l : lines) p.line(l);
+  EXPECT(p.count == 2, "fetch count %d", p.count);
+  EXPECT(m[0].uid == 101 && m[1].uid == 102, "uids %u %u", m[0].uid, m[1].uid);
+  eqStr(m[0].date, "12-May-2024 13:42:05 +0000", "date");
+  eqStr(mimeDecodeHeader(m[0].subject), " Rs 500 received", "folded encoded subject");
+  eqStr(fromName(m[0].from), "eSewa", "from 1");
+  eqStr(fromName(m[1].from), "fonepay.com", "from 2");
+  uint32_t a = 0;
+  EXPECT(parseAmount(mimeDecodeHeader(m[1].subject), a) && a == 120000, "subject 2 amount");
+}
+
 int main() {
+  imap_tests();
   words_tests();
   amount_tests();
   money_tests();

@@ -245,6 +245,8 @@ void handleRoot() {
        "<label>App password</label><input type=password name=gpass value='" + esc(cfg.gmailPass) + "' placeholder='xxxx xxxx xxxx xxxx' autocomplete=off>"
        "<small>16 characters, made at <a href='https://myaccount.google.com/apppasswords' target=_blank>myaccount.google.com/apppasswords</a></small>"
        "<label>Search filter</label><input name=query value='" + esc(cfg.imapQuery) + "' placeholder='UNSEEN FROM \"esewa\"' class=mono>"
+       "<small>Only emails whose subject reads like a payment (\"Rs 500 received\") are announced and marked read. Everything else stays unread.</small>"
+       "<label class=check><input type=checkbox name=gtls value=1" + chk(cfg.verifyGoogle) + "> Verify Google's certificate</label>"
        "<div class=stat>STATUS · <span id=imap>" + esc(lastImapStatus) + "</span></div>"
        "<button class=btn>Save</button></div></form></section>";
 
@@ -308,6 +310,7 @@ void handleSave() {
   if (server.hasArg("guser"))  { cfg.gmailUser = server.arg("guser"); cfg.gmailUser.trim(); }
   if (server.hasArg("gpass"))  { cfg.gmailPass = server.arg("gpass"); cfg.gmailPass.trim(); }
   if (server.hasArg("query"))  { cfg.imapQuery = server.arg("query"); cfg.imapQuery.trim(); }
+  if (server.hasArg("emode"))  cfg.verifyGoogle = server.hasArg("gtls");   // checkbox lives on the Gmail form
 
   if (server.hasArg("pin"))    cfg.adminPin = server.arg("pin");
   // Touch checkboxes only exist on the touch form, which is the one with the volume slider

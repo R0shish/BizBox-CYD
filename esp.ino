@@ -153,12 +153,15 @@ Preferences prefs;
 #include "model.h"
 #include "ui.h"
 #include "speaker.h"
+#include "imap.h"
 
 bool portalMode = false;
 bool lastPollOk = true;
 bool timeSynced = false;
 String lastImapStatus = "Idle";
 String since = "0";
+ImapState imapState = {0, 0};   // where the IMAP reader is in the mailbox (NVS guidv/guid)
+bool pollAgainSoon = false;     // more new mail is waiting
 volatile uint32_t pendingAmt = 0;
 volatile bool pendingRefresh = false;
 uint32_t lastUserActivity = 0;
@@ -223,6 +226,9 @@ void loadCfg() {
   cfg.gmailUser    = prefs.getString("guser", "");
   cfg.gmailPass    = prefs.getString("gpass", "");
   cfg.imapQuery    = prefs.getString("query", "UNSEEN");
+  cfg.verifyGoogle = prefs.getBool("gtls", true);
+  imapState.uidValidity = prefs.getULong("guidv", 0);
+  imapState.lastUid     = prefs.getULong("guid", 0);
   cfg.url          = prefs.getString("url", "");
   cfg.key          = prefs.getString("key", "");
   cfg.ssid         = prefs.getString("ssid", "");
@@ -261,6 +267,7 @@ void saveCfg() {
   prefs.putString("guser", cfg.gmailUser);
   prefs.putString("gpass", cfg.gmailPass);
   prefs.putString("query", cfg.imapQuery);
+  prefs.putBool("gtls", cfg.verifyGoogle);
   prefs.putString("url", cfg.url);
   prefs.putString("key", cfg.key);
   prefs.putString("ssid", cfg.ssid);
@@ -379,100 +386,29 @@ void announce(uint32_t paisa, const String& note) {
 // ==========================================
 // Gmail Polling (Native IMAP - Direct TLS)
 // ==========================================
+void saveImapState() {
+  prefs.begin("cydbiz", false);
+  prefs.putULong("guidv", imapState.uidValidity);
+  prefs.putULong("guid", imapState.lastUid);
+  prefs.end();
+}
+
 bool pollGmailIMAP() {
-  if (cfg.gmailUser.isEmpty() || cfg.gmailPass.isEmpty()) {
-    lastImapStatus = "Credentials missing";
-    return false;
+  ImapCfg c = {cfg.gmailUser, cfg.gmailPass, cfg.imapQuery, cfg.currency, cfg.verifyGoogle};
+  ImapResult r;
+  ImapState st = imapState;
+  bool ok = imapPoll(c, st, r, (uint32_t)time(nullptr));
+  lastImapStatus = r.status;
+  for (int i = 0; i < r.count; i++) {
+    addOrder(r.pays[i].title, r.pays[i].paisa, "PAID");
+    if (!r.pays[i].stale) announce(r.pays[i].paisa, r.pays[i].note);
   }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(6000);
-
-  lastImapStatus = "Connecting...";
-  if (!client.connect("imap.gmail.com", 993)) {
-    lastImapStatus = "Failed to connect to imap.gmail.com";
-    return false;
+  if (st.uidValidity != imapState.uidValidity || st.lastUid != imapState.lastUid) {
+    imapState = st;
+    saveImapState();
   }
-
-  client.readStringUntil('\n');
-
-  client.print("A01 LOGIN \"" + cfg.gmailUser + "\" \"" + cfg.gmailPass + "\"\r\n");
-  bool loginOk = false;
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line.startsWith("A01 OK")) { loginOk = true; break; }
-    if (line.startsWith("A01 NO") || line.startsWith("A01 BAD")) {
-      lastImapStatus = "Login rejected - check 16-char App Password";
-      break;
-    }
-  }
-  if (!loginOk) {
-    client.stop();
-    return false;
-  }
-
-  client.print("A02 SELECT INBOX\r\n");
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line.startsWith("A02 OK")) break;
-  }
-
-  String searchCmd = "A03 SEARCH " + (cfg.imapQuery.length() ? cfg.imapQuery : "UNSEEN");
-  client.print(searchCmd + "\r\n");
-
-  String searchRes = "";
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line.startsWith("* SEARCH")) {
-      searchRes = line.substring(8);
-      searchRes.trim();
-    }
-    if (line.startsWith("A03 OK")) break;
-  }
-
-  if (searchRes.length() == 0) {
-    client.print("A04 LOGOUT\r\n");
-    client.stop();
-    lastImapStatus = "Connected - Inbox clean";
-    return true;
-  }
-
-  int sp = searchRes.indexOf(' ');
-  String msgId = (sp > 0) ? searchRes.substring(0, sp) : searchRes;
-
-  client.print("A04 FETCH " + msgId + " (BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)])\r\n");
-  String subject = "";
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    String lc = line.substring(0, 8);
-    lc.toLowerCase();
-    if (lc == "subject:") {
-      subject = mimeDecodeHeader(line.substring(8));
-      subject.trim();
-    }
-    if (line.startsWith("A04 OK")) break;
-  }
-
-  client.print("A05 STORE " + msgId + " +FLAGS (\\Seen)\r\n");
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line.startsWith("A05 OK")) break;
-  }
-
-  client.print("A06 LOGOUT\r\n");
-  client.stop();
-
-  uint32_t amt = 0;
-  if (parseAmount(subject, amt, cfg.currency)) {
-    addOrder(subject.length() ? utf8Cut(subject, 22) : String("Payment"), amt, "PAID");
-    announce(amt, utf8Cut(subject, 22));
-    lastImapStatus = "Announced " + cfg.currency + " " + fmtPaisa(amt, fmtAmt);
-  } else if (subject.length()) {
-    addOrder(utf8Cut(subject, 22), 0, "NEW");
-    lastImapStatus = "Notification logged";
-  }
-  return true;
+  pollAgainSoon = r.more;
+  return ok;
 }
 
 void poll() {
@@ -804,7 +740,7 @@ void loop() {
         lastReconnect = millis();
         WiFi.reconnect();
       }
-    } else if (millis() - lastPoll > 15000) {
+    } else if (millis() - lastPoll > (pollAgainSoon ? 1000UL : 15000UL)) {
       lastPoll = millis();
       poll();
     }

@@ -52,6 +52,7 @@ struct Cfg {
   String gmailUser;     // Gmail address
   String gmailPass;     // 16-char App Password
   String imapQuery;     // Search filter
+  bool verifyGoogle;    // Check Google's TLS certificate (IMAP + Apps Script)
   String url;           // Apps Script URL (fallback)
   String key;           // Apps Script Secret
   String ssid;
