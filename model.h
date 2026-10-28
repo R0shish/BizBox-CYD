@@ -58,6 +58,7 @@ struct Cfg {
   String ssid;
   String pass;
   String adminPin;      // PIN protection
+  String apiToken;      // Bearer token for /api/* (32 hex chars, made on first boot)
   bool swapTouch;
   bool invertTouchX;
   bool invertTouchY;

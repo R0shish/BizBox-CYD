@@ -10,6 +10,10 @@
 #include <TFT_eSPI.h>
 #include "qr_encode.h"   // ricmoo/QRCode, vendored (see file)
 #include <ESP8266SAM.h>
+#include <esp_system.h>
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  #include <esp_random.h>
+#endif
 #include "textutil.h"
 
 // Fallback font handling
@@ -207,6 +211,15 @@ void initBacklight() {
 }
 
 // ---------- Storage (Preferences) ----------
+// 128-bit random token for the REST API (hardware RNG; Wi-Fi/BT is up or the
+// bootloader seeded it, either way it's good entropy on the ESP32)
+String newApiToken() {
+  String t;
+  char b[9];
+  for (int i = 0; i < 4; i++) { snprintf(b, sizeof b, "%08lx", (unsigned long)esp_random()); t += b; }
+  return t;
+}
+
 void loadCfg() {
   prefs.begin("cydbiz", true);
   cfg.bizName      = prefs.getString("bname", "Business Hub");
@@ -244,6 +257,14 @@ void loadCfg() {
   if (prefs.getBytesLength("hourly") == sizeof(hourly)) prefs.getBytes("hourly", hourly, sizeof(hourly));
   prefs.end();
 
+  cfg.apiToken     = prefs.getString("apitok", "");
+  if (cfg.apiToken.length() != 32) {
+    cfg.apiToken = newApiToken();
+    prefs.begin("cydbiz", false);
+    prefs.putString("apitok", cfg.apiToken);
+    prefs.end();
+  }
+
   if (cfg.volume < 5 || cfg.volume > 100) cfg.volume = 25;
   if (cfg.brightness < 10 || cfg.brightness > 100) cfg.brightness = 80;
   if (cfg.cycleSecs < 5 || cfg.cycleSecs > 120) cfg.cycleSecs = 15;
@@ -272,6 +293,7 @@ void saveCfg() {
   prefs.putString("ssid", cfg.ssid);
   prefs.putString("pass", cfg.pass);
   prefs.putString("pin", cfg.adminPin);
+  prefs.putString("apitok", cfg.apiToken);
   prefs.putBool("tswap", cfg.swapTouch);
   prefs.putBool("tinvx", cfg.invertTouchX);
   prefs.putBool("tinvy", cfg.invertTouchY);
@@ -591,15 +613,18 @@ void setup() {
   // Initialize Touch Driver (GPIO 25 is clean and unencumbered!)
   touch.begin();
 
+  formNonce = newApiToken();   // per-boot form nonce (web.h)
+
   // Web routes & REST API
   server.on("/", HTTP_GET, handleRoot);
   server.on("/save", HTTP_POST, handleSave);
   server.on("/test", HTTP_GET, handleTest);
+  // REST API: every /api/* needs "Authorization: Bearer <token>" (see web.h)
   server.on("/api/state", HTTP_GET, handleApiState);
   server.on("/api/order", HTTP_POST, handleApiOrder);
   server.on("/api/payment", HTTP_POST, handleApiPayment);
-  server.on("/api/reset", HTTP_GET, handleApiReset);
-  server.on("/api/clear", HTTP_GET, handleApiClear);
+  server.on("/api/reset", HTTP_ANY, handleApiReset);   // POST from the dashboard, GET kept for old scripts
+  server.on("/api/clear", HTTP_ANY, handleApiClear);
 
   // Captive Portal Detection Routes (for automatic popup on phone)
   server.on("/hotspot-detect.html", HTTP_GET, handleCaptiveRedirect); // Apple iOS

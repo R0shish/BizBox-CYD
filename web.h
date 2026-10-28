@@ -78,6 +78,9 @@ footer{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center
 
 static const char WEB_JS[] PROGMEM = R"JS(
 const $=s=>document.querySelector(s);
+const TOKEN=document.body.dataset.token||'';
+function api(u,o){o=o||{};o.headers=Object.assign({'Authorization':'Bearer '+TOKEN},o.headers||{});return fetch(u,o)}
+function copyTok(){const i=$('#tok');i.select();try{navigator.clipboard.writeText(i.value)}catch(e){document.execCommand('copy')}toast('TOKEN COPIED')}
 function tab(id,el){document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
 document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));$('#'+id).classList.add('on');el.classList.add('on');
 try{localStorage.setItem('tab',id)}catch(e){}}
@@ -86,9 +89,9 @@ function grp(n){n=String(Math.round(n));if(n.length<=3)return n;let t=n.slice(-3
 function amt(n){const r=Math.floor(n),p=Math.round((n-r)*100);return grp(r)+(p?'.'+String(p).padStart(2,'0'):'')}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function addOrder(){const t=$('#p_item').value.trim(),a=parseInt($('#p_amt').value)||0;if(!t){toast('ADD AN ITEM NAME');return}
-fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW'})})
+api('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,amount:a,status:'NEW'})})
 .then(()=>{$('#p_item').value='';$('#p_amt').value='';toast('SENT TO SCREEN');refresh()})}
-function act(u,m){fetch(u).then(()=>{toast(m);refresh()})}
+function act(u,m){api(u,{method:'POST'}).then(()=>{toast(m);refresh()})}
 function presetQR(v){const f=$('#qr_input');const p={upi:'upi://pay?pa=yourstore@upi&pn=Store&cu=INR',paypal:'https://paypal.me/yourbusiness'};if(p[v])f.value=p[v];}
 function render(s){
 $('#sales').textContent=grp(s.sales);$('#tx').textContent=s.tx;$('#avg').textContent=s.cur+' '+grp(s.avg);$('#last').textContent=s.last||'--:--';
@@ -96,7 +99,7 @@ $('#clock').textContent=s.time;$('#imap').textContent=s.imap;$('#ndot').classNam
 const op=$('#openpill');op.className='pill '+(s.open?'open':'closed');op.textContent=s.open?'Open':'Closed';
 const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div class="'+(h==s.hour?'now':v?'':'zero')+'" style="height:'+(v?Math.max(6,v/mx*100):3)+'%"></div>').join('');
 $('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
-function refresh(){fetch('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
+function refresh(){api('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
 if(!document.body.dataset.portal){refresh();setInterval(refresh,5000)}
 )JS";
@@ -107,6 +110,26 @@ bool authed() {
   server.requestAuthentication();
   return false;
 }
+
+// Every /api/* endpoint needs "Authorization: Bearer <token>". Browsers can't
+// add that header to a cross-site request without a CORS preflight (which we
+// never approve), so this also stops other web pages from driving the API.
+bool apiAuthed() {
+  String h = server.header("Authorization");
+  String want = "Bearer " + cfg.apiToken;
+  bool ok = cfg.apiToken.length() && h.length() == want.length();
+  uint8_t diff = 0;
+  for (unsigned i = 0; ok && i < h.length(); i++) diff |= (uint8_t)(h[i] ^ want[i]);   // constant time
+  if (ok && diff == 0) return true;
+  server.sendHeader("WWW-Authenticate", "Bearer realm=\"bizbox\"");
+  server.send(401, "application/json", "{\"error\":\"missing or wrong API token\"}");
+  return false;
+}
+
+// Forms carry a per-boot nonce so another web page can't post to /save
+// (e.g. to swap the payment QR for its own) through the owner's browser.
+String formNonce;
+#define FORM_OPEN (String("<form method=post action=/save><input type=hidden name=csrf value=") + formNonce + ">")
 
 String sel(bool on) { return on ? " selected" : ""; }
 String chk(bool on) { return on ? " checked" : ""; }
@@ -159,7 +182,7 @@ void handleRoot() {
   String h;
   h.reserve(20000);
   h += pageHead(name);
-  h += String("<body") + (portalMode ? " data-portal=1" : "") + "><div class=strip></div>";
+  h += String("<body") + (portalMode ? " data-portal=1" : String(" data-token=") + cfg.apiToken) + "><div class=strip></div>";
 
   // Header
   h += "<header class=wrap><div class=eyebrow>" + String(portalMode ? "Setup mode" : "Payment soundbox") +
@@ -212,7 +235,7 @@ void handleRoot() {
        "</section>";
 
   // 02 QR
-  h += String("<section id=t-qr class='pane") + (active == 1 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-qr class='pane") + (active == 1 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Payment QR</b></div><h2>What customers scan.</h2>"
        "<label>QR text or link</label>"
        "<textarea name=qr id=qr_input rows=5 placeholder='Paste the text inside your eSewa / Fonepay / Khalti merchant QR'>" + esc(cfg.qr) + "</textarea>"
@@ -223,7 +246,7 @@ void handleRoot() {
        "<button class=btn>Save QR</button></div></form></section>";
 
   // 03 Brand
-  h += String("<section id=t-brand class='pane") + (active == 2 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-brand class='pane") + (active == 2 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Brand</b></div><h2>Shop details.</h2>"
        "<label>Business name</label><input name=bname value='" + esc(cfg.bizName) + "' placeholder='Roast & Co'>"
        "<div class=grid2><div><label>Currency</label><input name=curr value='" + esc(cfg.currency) + "' placeholder='Rs'></div>"
@@ -235,7 +258,7 @@ void handleRoot() {
        "<button class=btn>Save</button></div></form></section>";
 
   // 04 Gmail
-  h += String("<section id=t-gmail class='pane") + (active == 3 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-gmail class='pane") + (active == 3 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Payment alerts</b></div><h2>Listen for payments.</h2>"
        "<label>Source</label><select name=emode>"
        "<option value=0" + sel(cfg.emailMode == 0) + ">Gmail inbox (direct IMAP)</option>"
@@ -251,7 +274,7 @@ void handleRoot() {
        "<button class=btn>Save</button></div></form></section>";
 
   // 05 System
-  h += String("<section id=t-sys class='pane") + (active == 4 ? " on" : "") + "'><form method=post action=/save>"
+  h += String("<section id=t-sys class='pane") + (active == 4 ? " on" : "") + "'>" + FORM_OPEN +
        "<div class=card><div class=eyebrow>01 <b>/ Wi-Fi</b></div><h2>Network.</h2>"
        "<label>Network name</label><input name=ssid value='" + esc(cfg.ssid) + "' autocapitalize=off autocorrect=off>"
        "<label>Password</label><input type=password name=pass placeholder='Leave blank to keep current'>"
@@ -274,7 +297,13 @@ void handleRoot() {
        "<label class=check><input type=checkbox name=tswap value=1" + chk(cfg.swapTouch) + "> Swap X and Y</label>"
        "<label class=check><input type=checkbox name=tinvx value=1" + chk(cfg.invertTouchX) + "> Flip X</label>"
        "<label class=check><input type=checkbox name=tinvy value=1" + chk(cfg.invertTouchY) + "> Flip Y</label>"
-       "<button class='btn ghost'>Save touch</button></div></form></section>";
+       "<button class='btn ghost'>Save touch</button></div></form>"
+       + FORM_OPEN + "<div class=card><div class=eyebrow>04 <b>/ API</b></div><h2>Token.</h2>"
+       "<label>API token</label><input id=tok class=mono readonly value='" + (portalMode ? String("") : cfg.apiToken) + "' onclick='copyTok()'>"
+       "<small>Send it as <span class=mono>Authorization: Bearer &lt;token&gt;</span> on every /api/* call. Tap to copy.</small>"
+       + String(cfg.adminPin.isEmpty() ? "<small style='color:var(--yellow)'>No admin PIN set: anyone on this Wi-Fi can open this page and read the token. Set a PIN above.</small>" : "") +
+       "<input type=hidden name=rotate value=1>"
+       "<button class='btn ghost' onclick=\"return confirm('Make a new token? Scripts using the old one stop working.')\">Make a new token</button></div></form></section>";
 
   h += "</main><footer>27.7° N, 85.3° E · MADE IN KATHMANDU</footer><div id=toast class=toast></div><script>";
   h += WEB_JS;
@@ -285,6 +314,10 @@ void handleRoot() {
 
 void handleSave() {
   if (!authed()) return;
+  if (!formNonce.length() || server.arg("csrf") != formNonce) {
+    server.send(403, "text/plain", "Form expired: reload the page and try again.");
+    return;
+  }
   CfgLock lock;   // the network task reads these fields
   String nssid = server.arg("ssid"), npass = server.arg("pass");
   bool wifiChanged = (nssid.length() && nssid != cfg.ssid) || npass.length();
@@ -314,6 +347,7 @@ void handleSave() {
   if (server.hasArg("emode"))  cfg.verifyGoogle = server.hasArg("gtls");   // checkbox lives on the Gmail form
 
   if (server.hasArg("pin"))    cfg.adminPin = server.arg("pin");
+  if (server.hasArg("rotate")) cfg.apiToken = newApiToken();
   // Touch checkboxes only exist on the touch form, which is the one with the volume slider
   if (server.hasArg("vol")) {
     cfg.swapTouch    = server.hasArg("tswap");
@@ -348,7 +382,7 @@ void handleTest() {
 }
 
 void handleApiState() {
-  if (!authed()) return;
+  if (!apiAuthed()) return;
   JsonDocument doc;
   struct tm t;
   bool tv = getLocalTime(&t, 0);
@@ -378,6 +412,7 @@ void handleApiState() {
 }
 
 void handleApiOrder() {
+  if (!apiAuthed()) return;
   if (server.method() == HTTP_POST) {
     JsonDocument doc;
     deserializeJson(doc, server.arg("plain"));
@@ -392,6 +427,7 @@ void handleApiOrder() {
 }
 
 void handleApiPayment() {
+  if (!apiAuthed()) return;
   if (server.method() == HTTP_POST) {
     JsonDocument doc;
     deserializeJson(doc, server.arg("plain"));
@@ -408,7 +444,7 @@ void handleApiPayment() {
 }
 
 void handleApiReset() {
-  if (!authed()) return;
+  if (!apiAuthed()) return;
   todaySales = 0;
   totalTransactions = 0;
   lastPayHM = "";
@@ -419,7 +455,7 @@ void handleApiReset() {
 }
 
 void handleApiClear() {
-  if (!authed()) return;
+  if (!apiAuthed()) return;
   int keep = 0;
   for (int i = 0; i < orderCount; i++) {
     if (orders[i].status != "PAID") {
