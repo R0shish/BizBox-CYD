@@ -8,7 +8,7 @@ jb=base64.b64encode(open(ROOT+'/tools/fonts/JetBrainsMono.ttf','rb').read()).dec
 css=f"@font-face{{font-family:'Space Grotesk';src:url(data:font/ttf;base64,{sg});font-weight:300 700}}@font-face{{font-family:'JetBrains Mono';src:url(data:font/ttf;base64,{jb});font-weight:100 800}}"
 async def main():
     async with async_playwright() as p:
-        b=await p.chromium.launch()
+        b=await p.chromium.launch(executable_path=os.environ.get('CHROMIUM') or None)  # CHROMIUM=/path to use a preinstalled browser
         pg=await b.new_page(viewport={'width':390,'height':844},device_scale_factor=2)
         async def fonts(route): await route.fulfill(status=200,content_type='text/css',body=css)
         await pg.route('**/fonts.googleapis.com/**',fonts)
