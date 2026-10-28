@@ -59,10 +59,45 @@ enum UiAlign : uint8_t { AL_L = 0, AL_C, AL_R };
 
 static int8_t uiCurFont = -1;
 
+#ifdef SMOOTH_FONT
+// TFT_eSPI re-parses a font's whole glyph table (and frees/mallocs 7 arrays)
+// on every loadFont(). A redraw switches fonts dozens of times, so each font
+// is parsed once and then swapped in by its public metrics + arrays, which is
+// all drawGlyph()/textWidth() read for array fonts. ~7 KB of heap, allocated
+// once at the first draws. Nothing else may call tft.loadFont/unloadFont.
+struct UiFontSlot {
+  bool ready;
+  TFT_eSPI::fontMetrics m;
+  uint16_t* unicode; uint8_t* height; uint8_t* width; uint8_t* xAdvance;
+  int16_t* dY; int8_t* dX; uint32_t* bitmap;
+};
+static UiFontSlot uiFontSlots[6];
+
+static void ui_fontInstall(const UiFontSlot& c) {
+  tft.gFont = c.m;
+  tft.gUnicode = c.unicode; tft.gHeight = c.height; tft.gWidth = c.width; tft.gxAdvance = c.xAdvance;
+  tft.gdY = c.dY; tft.gdX = c.dX; tft.gBitmap = c.bitmap;
+  tft.fontLoaded = true;
+}
+#endif
+
 void ui_font(uint8_t f) {
   if (uiCurFont == (int8_t)f) return;
 #ifdef SMOOTH_FONT
-  tft.loadFont(UI_FONT_DATA[f]);
+  UiFontSlot& c = uiFontSlots[f];
+  if (!c.ready) {
+    // Detach the cached font that's installed, so loadFont() can't free it
+    tft.fontLoaded = false;
+    tft.gUnicode = nullptr; tft.gHeight = nullptr; tft.gWidth = nullptr; tft.gxAdvance = nullptr;
+    tft.gdY = nullptr; tft.gdX = nullptr; tft.gBitmap = nullptr;
+    tft.loadFont(UI_FONT_DATA[f]);
+    c.m = tft.gFont;
+    c.unicode = tft.gUnicode; c.height = tft.gHeight; c.width = tft.gWidth; c.xAdvance = tft.gxAdvance;
+    c.dY = tft.gdY; c.dX = tft.gdX; c.bitmap = tft.gBitmap;
+    c.ready = c.unicode != nullptr;
+  } else {
+    ui_fontInstall(c);
+  }
 #else
   static const uint8_t fallback[] = {1, 2, 2, 4, 4, 4};
   tft.setTextFont(fallback[f]);
