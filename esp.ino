@@ -626,8 +626,13 @@ void handleTouch() {
 // ==========================================
 #include "web.h"
 
-// Captive Portal Auto-Detect Handlers for iOS / Android / Windows
+// Captive Portal Auto-Detect Handlers for iOS / Android / Windows.
+// Only in setup mode: on the shop LAN 192.168.4.1 doesn't exist.
 void handleCaptiveRedirect() {
+  if (!portalMode) {
+    server.send(404, "text/plain", "Not found");
+    return;
+  }
   server.sendHeader("Location", "http://192.168.4.1/");
   server.send(302, "text/plain", "Redirecting to setup");
 }
@@ -675,6 +680,24 @@ void startPortal() {
   WiFi.softAP(AP_NAME);
   dns.start(53, "*", WiFi.softAPIP());
   ui_portal();
+}
+
+// Setup mode with a saved network (router still booting after a power cut,
+// or briefly down): keep trying it, and go back to normal once it answers.
+// Retries pause while a phone is on the hotspot, because joining scans
+// channels and would drop that phone.
+void portalRetryWifi() {
+  if (!portalMode || cfg.ssid.isEmpty()) return;
+  bool phoneOnHotspot = WiFi.softAPgetStationNum() > 0;
+  if (WiFi.status() == WL_CONNECTED && !phoneOnHotspot) {
+    if (ordersDirty) saveOrdersNow();
+    ESP.restart();                     // boot normally on the saved network
+  }
+  static uint32_t lastTry = 0;
+  if (!phoneOnHotspot && millis() - lastTry > 30000) {
+    lastTry = millis();
+    WiFi.begin(cfg.ssid.c_str(), cfg.pass.c_str());
+  }
 }
 
 void handleButton() {
@@ -754,7 +777,10 @@ void setup() {
 
 void loop() {
   server.handleClient();
-  if (portalMode) dns.processNextRequest();
+  if (portalMode) {
+    dns.processNextRequest();
+    portalRetryWifi();
+  }
   handleButton();
   handleTouch();
 
