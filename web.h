@@ -210,7 +210,7 @@ String orderRows() {
 
 void handleRoot() {
   if (!authed()) return;
-  String name = cfg.bizName.length() ? cfg.bizName : String("Business Hub");
+  String name = shopName();
   uint32_t avg = totalTransactions ? todaySales / totalTransactions : 0;
   String ip = portalMode ? String("192.168.4.1") : WiFi.localIP().toString();
 
@@ -523,12 +523,9 @@ void handleApiPayment() {
 
 void handleApiReset() {
   if (!apiAuthed()) return;
-  todaySales = 0;
-  totalTransactions = 0;
-  lastPayHM = "";
-  memset(hourly, 0, sizeof(hourly));
+  resetToday();
   saveSales();
-  if (currentScreen == SCREEN_STATS) drawScreen();
+  if (currentScreen == SCREEN_STATS) redrawContent();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
@@ -542,7 +539,7 @@ void handleApiClear() {
   }
   orderCount = keep;
   ordersChanged();
-  if (currentScreen == SCREEN_ORDERS) drawScreen();
+  if (currentScreen == SCREEN_ORDERS) redrawContent();
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 

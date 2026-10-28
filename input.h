@@ -20,23 +20,23 @@ void handleTap(int x, int y) {
   if (currentScreen == SCREEN_SETTINGS) {
     if (hit(x, y, SET_MINUS_X, SET_VOL_Y, SET_BTN_W, SET_BTN_H)) {
       cfg.volume = max(5, cfg.volume - 5);
-      saveCfg(); drawScreen();
+      saveCfg(); ui_settingValue(0, true);
     } else if (hit(x, y, SET_PLUS_X, SET_VOL_Y, SET_BTN_W, SET_BTN_H)) {
       cfg.volume = min(100, cfg.volume + 5);
-      saveCfg(); drawScreen();
+      saveCfg(); ui_settingValue(0, true);
     } else if (hit(x, y, SET_MINUS_X, SET_BRI_Y, SET_BTN_W, SET_BTN_H)) {
       cfg.brightness = max(10, cfg.brightness - 10);
-      setBacklight(cfg.brightness); saveCfg(); drawScreen();
+      setBacklight(cfg.brightness); saveCfg(); ui_settingValue(1, true);
     } else if (hit(x, y, SET_PLUS_X, SET_BRI_Y, SET_BTN_W, SET_BTN_H)) {
       cfg.brightness = min(100, cfg.brightness + 10);
-      setBacklight(cfg.brightness); saveCfg(); drawScreen();
+      setBacklight(cfg.brightness); saveCfg(); ui_settingValue(1, true);
     } else if (hit(x, y, SET_TEST_X, SET_TEST_Y, SET_TEST_W, SET_TEST_H)) {
       testVoice();
     }
   } else if (currentScreen == SCREEN_STATS) {
     if (x >= 200 && y >= 36 && y <= 76) { // store switch
       cfg.storeOpen = !cfg.storeOpen;
-      saveCfg(); drawScreen();
+      saveCfg(); ui_statsSwitch(true);
     }
   } else if (currentScreen == SCREEN_ORDERS) {
     for (int i = 0; i < orderCount && i < ORD_ROWS; i++) {
@@ -47,14 +47,15 @@ void handleTap(int x, int y) {
         else if (orders[i].status == "READY") orders[i].status = "PAID";
         else orders[i].status = "NEW";
         ordersChanged();
-        drawScreen();
+        ui_orderRow(i, true);
+        ui_ordersChip(true);
         break;
       }
     }
   } else if (currentScreen == SCREEN_PROMO) {
     cfg.storeOpen = !cfg.storeOpen;
     saveCfg();
-    drawScreen();
+    redrawContent();
   }
 }
 

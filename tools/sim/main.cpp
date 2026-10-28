@@ -26,6 +26,39 @@ static void seed() {
   netState = NET_OK;
 }
 
+// Partial redraws must leave exactly the pixels a full redraw would
+static int partialFails = 0;
+static void expectSame(std::vector<uint16_t> got, const char* what) {   // a copy: the full redraw reuses tft.fb
+  ui_drawScreen();
+  int diff = 0;
+  for (size_t i = 0; i < got.size(); i++) diff += got[i] != tft.fb[i];
+  if (diff) { fprintf(stderr, "PARTIAL REDRAW MISMATCH: %s (%d px)\n", what, diff); partialFails++; }
+}
+
+static void partialTests() {
+  seed();
+  for (int a = 0; a < SCREEN_COUNT; a++) for (int b = 0; b < SCREEN_COUNT; b++) {
+    currentScreen = (Screen)a; ui_drawScreen();
+    currentScreen = (Screen)b; ui_redrawContent();
+    char w[48]; snprintf(w, sizeof w, "switch %d -> %d", a, b);
+    expectSame(tft.fb, w);
+  }
+  currentScreen = SCREEN_SETTINGS; ui_drawScreen();
+  cfg.volume = 100; ui_settingValue(0, true); cfg.brightness = 10; ui_settingValue(1, true);
+  expectSame(tft.fb, "volume/brightness");
+  cfg.volume = 25; ui_settingValue(0, true);
+  expectSame(tft.fb, "volume back");
+  currentScreen = SCREEN_ORDERS; ui_drawScreen();
+  for (int i = 0; i < 4; i++) {
+    orders[i].status = orders[i].status == "PAID" ? "NEW" : "PAID";
+    ui_orderRow(i, true); ui_ordersChip(true);
+    expectSame(tft.fb, "order row tap");
+  }
+  currentScreen = SCREEN_STATS; ui_drawScreen();
+  cfg.storeOpen = !cfg.storeOpen; ui_statsSwitch(true); expectSame(tft.fb, "store switch");
+  cfg.storeOpen = !cfg.storeOpen; ui_statsSwitch(true); expectSame(tft.fb, "store switch back");
+}
+
 int main(int argc, char** argv) {
   const char* out = argc > 1 ? argv[1] : ".";
   char p[512];
@@ -56,5 +89,8 @@ int main(int argc, char** argv) {
   ui_paymentAlert(49950, "Test", true);
   fprintf(stderr, "fonts parsed: %d\n", tft.loadCount);
   snprintf(p, sizeof p, "%s/13_payment_test.ppm", out); tft.savePPM(p);
+  partialTests();
+  if (partialFails) return 1;
+  fprintf(stderr, "partial redraws match full redraws\n");
   return 0;
 }

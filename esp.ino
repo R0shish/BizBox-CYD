@@ -124,10 +124,10 @@ void loop() {
         lastCycleTick = millis();
         if (currentScreen == SCREEN_QR) {
           currentScreen = SCREEN_PROMO;
-          drawScreen();
+          redrawContent();
         } else if (currentScreen == SCREEN_PROMO) {
           currentScreen = SCREEN_QR;
-          drawScreen();
+          redrawContent();
         }
       }
     }

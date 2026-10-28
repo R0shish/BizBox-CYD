@@ -7,8 +7,15 @@
 // ==========================================
 // Screen plumbing (drawing lives in ui.h)
 // ==========================================
+// Full repaint: after the payment takeover or when the status bar changed
 void drawScreen() {
   ui_drawScreen();
+}
+
+// Content area + nav only (status bar stays): screen switches and data changes
+void redrawContent() {
+  if (portalMode) return;
+  ui_redrawContent();
 }
 
 void setScreen(int s) {
@@ -16,7 +23,7 @@ void setScreen(int s) {
   if (s >= SCREEN_COUNT) s = 0;
   currentScreen = (Screen)s;
   lastUserActivity = millis();
-  drawScreen();
+  redrawContent();
 }
 
 void setNet(NetState s) {
@@ -25,21 +32,24 @@ void setNet(NetState s) {
   if (!portalMode) ui_drawDot();
 }
 
+// Zero today's numbers (midnight, or "Reset today" on the dashboard)
+void resetToday() {
+  todaySales = 0;
+  salesPaisa = 0;
+  totalTransactions = 0;
+  lastPayHM = "";
+  memset(hourly, 0, sizeof(hourly));
+}
+
 // Reset today's numbers when the date changes (needs the clock)
 void checkDayRollover() {
   struct tm t;
   if (!getLocalTime(&t, 0)) return;
   if (salesDay == t.tm_yday) return;
-  if (salesDay != -1) {
-    todaySales = 0;
-    salesPaisa = 0;
-    totalTransactions = 0;
-    lastPayHM = "";
-    memset(hourly, 0, sizeof(hourly));
-  }
+  if (salesDay != -1) resetToday();
   salesDay = t.tm_yday;
   saveSales();
-  if (!portalMode && currentScreen == SCREEN_STATS) drawScreen();
+  if (currentScreen == SCREEN_STATS) redrawContent();
 }
 
 // Count a payment towards today's numbers. Totals are whole rupees with the
@@ -74,9 +84,7 @@ void addOrder(const String& title, uint32_t amount, const String& status = "NEW"
   o.ext = "";
   ordersChanged();
   if (status == "PAID") recordPayment(amount);
-  if (!portalMode && (currentScreen == SCREEN_ORDERS || currentScreen == SCREEN_STATS)) {
-    drawScreen();
-  }
+  if (currentScreen == SCREEN_ORDERS || currentScreen == SCREEN_STATS) redrawContent();
 }
 
 // ==========================================

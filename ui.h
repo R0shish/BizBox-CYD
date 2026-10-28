@@ -184,6 +184,8 @@ String fmtAmt(uint32_t n) {
   return head + out + "," + tail;
 }
 
+String shopName() { return cfg.bizName.length() ? cfg.bizName : String("Business Hub"); }
+
 String money(uint32_t n) {
   return cfg.currency + " " + fmtAmt(n);
 }
@@ -255,16 +257,22 @@ void ui_wifiBars(int x, int y) {
 bool ui_qr(const String& text, int bx, int by, int box, uint16_t ink, uint16_t paper) {
   static QRCode qr;
   static uint8_t buf[900];
+  static String encoded;          // text currently in qr/buf: re-encode only when it changes
+  static bool encodedOk = false;
   static const uint16_t capacityLow[] = {0, 17, 32, 53, 78, 106, 134, 154, 192,
                                          230, 271, 321, 367, 425, 458, 520, 586};
-  uint8_t version = 0;
-  for (int v = 1; v <= 16; v++) {
-    if (text.length() <= capacityLow[v] && qrcode_getBufferSize((uint8_t)v) <= sizeof(buf)) {
-      version = (uint8_t)v;
-      break;
+  if (!encodedOk || text != encoded) {
+    uint8_t version = 0;
+    for (int v = 1; v <= 16; v++) {
+      if (text.length() <= capacityLow[v] && qrcode_getBufferSize((uint8_t)v) <= sizeof(buf)) {
+        version = (uint8_t)v;
+        break;
+      }
     }
+    encoded = text;
+    encodedOk = version != 0 && qrcode_initText(&qr, buf, version, ECC_LOW, text.c_str()) == 0;
   }
-  if (version == 0 || qrcode_initText(&qr, buf, version, ECC_LOW, text.c_str()) != 0) return false;
+  if (!encodedOk) return false;
   int scale = max(1, box / (qr.size + 2));
   int px = qr.size * scale;
   int x0 = bx + (box - px) / 2, y0 = by + (box - px) / 2;
@@ -309,7 +317,7 @@ void ui_statusBar() {
   tft.fillRect(0, 0, UI_W, UI_TOP - 1, UI_BG);
   ui_hline(0, UI_TOP - 1, UI_W);
   ui_drawDot();
-  String name = cfg.bizName.length() ? cfg.bizName : String("Business Hub");
+  String name = shopName();
   ui_text(ui_fit(ui_upper(name), FT_LABEL, 196), 26, 15, FT_LABEL, UI_INK, UI_BG);
   ui_wifiBars(246, 15);
   ui_drawClock();
@@ -355,7 +363,7 @@ void ui_drawPay() {
 
   ui_hline(rx, 166, rw);
   ui_text("PAYING TO", rx, 182, FT_LABEL, UI_DIM, UI_BG);
-  String name = cfg.bizName.length() ? cfg.bizName : String("Business Hub");
+  String name = shopName();
   ui_text(ui_fit(name, FT_BODY, rw), rx, 199, FT_BODY, UI_INK, UI_BG);
 }
 
@@ -366,15 +374,35 @@ uint16_t ui_statusColor(const String& s) {
   return UI_DIM; // PAID / done
 }
 
-void ui_drawOrders() {
-  ui_eyebrow("02", "ORDERS", 12, 38);
-  ui_text("Orders.", 12, 64, FT_HEAD, UI_INK, UI_BG);
-
+// "3 OPEN" chip, top right of the Orders screen
+void ui_ordersChip(bool clear = false) {
   int open = 0;
   for (int i = 0; i < orderCount; i++) if (orders[i].status != "PAID") open++;
   String chip = String(open) + " OPEN";
   int cw = ui_w(chip, FT_LABEL) + 22;
+  if (clear) tft.fillRect(150, 44, 160, 24, UI_BG);
   ui_pill(308 - cw, 46, cw, 20, chip, open ? UI_CYAN : UI_DIM, UI_BG, false);
+}
+
+// One order row (between the hairlines), e.g. after a status tap
+void ui_orderRow(int i, bool clear = false) {
+  int y = ORD_LIST_Y + i * ORD_ROW_H;
+  if (clear) tft.fillRect(12, y + 1, 296, ORD_ROW_H - 1, UI_BG);
+  uint16_t sc = ui_statusColor(orders[i].status);
+  bool done = orders[i].status == "PAID";
+  tft.fillRect(12, y + 9, 3, 14, sc);
+  ui_text("#" + String(orders[i].id), 22, y + 21, FT_MONO, UI_DIM, UI_BG);
+  String amt = orders[i].amount ? fmtPaisa(orders[i].amount, fmtAmt) : String("-");
+  int aw = ui_text(amt, 232, y + 21, FT_MONO, done ? UI_MUTED : UI_INK, UI_BG, AL_R);
+  ui_text(ui_fit(orders[i].title, FT_BODY, 232 - aw - 10 - 60), 60, y + 21, FT_BODY,
+          done ? UI_MUTED : UI_INK, UI_BG);
+  ui_pill(244, y + 6, 64, 20, orders[i].status, sc, UI_BG, false);
+}
+
+void ui_drawOrders() {
+  ui_eyebrow("02", "ORDERS", 12, 38);
+  ui_text("Orders.", 12, 64, FT_HEAD, UI_INK, UI_BG);
+  ui_ordersChip();
 
   ui_hline(12, ORD_LIST_Y, 296);
   if (orderCount == 0) {
@@ -383,17 +411,8 @@ void ui_drawOrders() {
     return;
   }
   for (int i = 0; i < orderCount && i < ORD_ROWS; i++) {
-    int y = ORD_LIST_Y + i * ORD_ROW_H;
-    uint16_t sc = ui_statusColor(orders[i].status);
-    bool done = orders[i].status == "PAID";
-    tft.fillRect(12, y + 9, 3, 14, sc);
-    ui_text("#" + String(orders[i].id), 22, y + 21, FT_MONO, UI_DIM, UI_BG);
-    String amt = orders[i].amount ? fmtPaisa(orders[i].amount, fmtAmt) : String("-");
-    int aw = ui_text(amt, 232, y + 21, FT_MONO, done ? UI_MUTED : UI_INK, UI_BG, AL_R);
-    ui_text(ui_fit(orders[i].title, FT_BODY, 232 - aw - 10 - 60), 60, y + 21, FT_BODY,
-            done ? UI_MUTED : UI_INK, UI_BG);
-    ui_pill(244, y + 6, 64, 20, orders[i].status, sc, UI_BG, false);
-    if (i < ORD_ROWS - 1 && i < orderCount - 1) ui_hline(12, y + ORD_ROW_H, 296);
+    ui_orderRow(i);
+    if (i < ORD_ROWS - 1 && i < orderCount - 1) ui_hline(12, ORD_LIST_Y + (i + 1) * ORD_ROW_H, 296);
   }
   if (orderCount > ORD_ROWS) {
     ui_text("+" + String(orderCount - ORD_ROWS) + " MORE", 308, 38, FT_LABEL, UI_DIM, UI_BG, AL_R);
@@ -427,16 +446,21 @@ void ui_drawBoard() {
   ui_strip(0, 204, UI_W, 3);
 }
 
-void ui_drawStats() {
-  ui_eyebrow("04", "STATS", 12, 38);
-  ui_text("Today.", 12, 64, FT_HEAD, UI_INK, UI_BG);
-
-  // Store switch
+// Open/closed switch, top right of the Stats screen
+void ui_statsSwitch(bool clear = false) {
+  if (clear) tft.fillRect(150, 42, 160, 28, UI_BG);
   uint16_t sc = cfg.storeOpen ? UI_GREEN : UI_RED;
   ui_text(cfg.storeOpen ? "OPEN" : "CLOSED", 252, 60, FT_LABEL, sc, UI_BG, AL_R);
   tft.fillSmoothRoundRect(260, 44, 48, 24, 12, cfg.storeOpen ? UI_GREEN : UI_LINE, UI_BG);
   tft.fillSmoothCircle(cfg.storeOpen ? 296 : 272, 56, 9, cfg.storeOpen ? UI_BG : UI_DIM,
                        cfg.storeOpen ? UI_GREEN : UI_LINE);
+}
+
+void ui_drawStats() {
+  ui_eyebrow("04", "STATS", 12, 38);
+  ui_text("Today.", 12, 64, FT_HEAD, UI_INK, UI_BG);
+
+  ui_statsSwitch();
 
   // Big number
   int cw = ui_text(cfg.currency, 12, 112, FT_HEAD, UI_MUTED, UI_BG);
@@ -486,21 +510,28 @@ void ui_stepBtn(int x, int y, bool plus) {
   if (plus) tft.fillRect(mx - 1, my - 5, 2, 10, UI_INK);
 }
 
+// Value + meter of the volume (row 0) or brightness (row 1) setting
+void ui_settingValue(int row, bool clear = false) {
+  int y = row == 0 ? 92 : 136;
+  int v = row == 0 ? cfg.volume : cfg.brightness;
+  if (clear) tft.fillRect(12, y + 3, 74, 19, UI_BG);
+  ui_text(String(v) + "%", 12, y + 17, FT_BODY, UI_INK, UI_BG);
+  ui_meter(90, y, v, 100, row == 0 ? UI_CYAN : UI_YELLOW);
+}
+
 void ui_drawSettings() {
   ui_eyebrow("05", "SETUP", 12, 38);
   ui_text("Settings.", 12, 64, FT_HEAD, UI_INK, UI_BG);
 
   ui_hline(12, 76, 296);
   ui_text("VOLUME", 12, 92, FT_LABEL, UI_DIM, UI_BG);
-  ui_text(String(cfg.volume) + "%", 12, 109, FT_BODY, UI_INK, UI_BG);
-  ui_meter(90, 92, cfg.volume, 100, UI_CYAN);
+  ui_settingValue(0);
   ui_stepBtn(SET_MINUS_X, SET_VOL_Y, false);
   ui_stepBtn(SET_PLUS_X, SET_VOL_Y, true);
 
   ui_hline(12, 119, 296);
   ui_text("BRIGHTNESS", 12, 136, FT_LABEL, UI_DIM, UI_BG);
-  ui_text(String(cfg.brightness) + "%", 12, 153, FT_BODY, UI_INK, UI_BG);
-  ui_meter(90, 136, cfg.brightness, 100, UI_YELLOW);
+  ui_settingValue(1);
   ui_stepBtn(SET_MINUS_X, SET_BRI_Y, false);
   ui_stepBtn(SET_PLUS_X, SET_BRI_Y, true);
 
@@ -519,8 +550,7 @@ void ui_drawSettings() {
   ui_text("TEST", SET_TEST_X + 48, ty + 4, FT_LABEL, UI_CYAN, UI_BG, AL_C);
 }
 
-void ui_drawScreen() {
-  tft.fillScreen(UI_BG);
+static void ui_drawContent() {
   switch (currentScreen) {
     case SCREEN_QR:       ui_drawPay(); break;
     case SCREEN_ORDERS:   ui_drawOrders(); break;
@@ -529,7 +559,21 @@ void ui_drawScreen() {
     case SCREEN_SETTINGS: ui_drawSettings(); break;
     default: break;
   }
+}
+
+// Everything (after the payment takeover, or when the shop name changed)
+void ui_drawScreen() {
+  tft.fillScreen(UI_BG);
+  ui_drawContent();
   ui_statusBar();
+  ui_nav();
+}
+
+// Screen switch / content change: the status bar stays as it is, so only
+// the content area and the nav repaint (no full-panel flash)
+void ui_redrawContent() {
+  tft.fillRect(0, UI_TOP, UI_W, UI_NAV_Y - UI_TOP, UI_BG);
+  ui_drawContent();
   ui_nav();
 }
 
@@ -609,7 +653,7 @@ void ui_bootScreen() {
   tft.fillScreen(UI_BG);
   ui_strip(0, 0, UI_W, 4);
   ui_text("BOOTING · V" FW_VERSION, 16, 34, FT_LABEL, UI_CYAN, UI_BG);
-  String name = cfg.bizName.length() ? cfg.bizName : String("Business Hub");
+  String name = shopName();
   ui_text(ui_fit(name + ".", FT_HEAD, 288), 16, 62, FT_HEAD, UI_INK, UI_BG);
   ui_text("QR payments, read out loud.", 16, 80, FT_MONO, UI_DIM, UI_BG);
   ui_bootStep(0, "Loading config", BOOT_OK);
