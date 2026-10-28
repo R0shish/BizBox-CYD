@@ -173,10 +173,12 @@ Found and fixed while working on this branch (not in the original code):
 - **API token regenerated on every boot** (`8249db2`): the first version of the token code read it after `prefs.end()`. Caught by making the Preferences stub as strict as the real class; a firmware test now covers it.
 - **`/api/reset` didn't clear the paisa carry** (`14e7dfd`): introduced with paisa support; `resetToday()` now serves both paths.
 - **Tabs off-screen** (`14b8e03`): with the sixth (Connect) tab, System slid off a 390 px phone screen.
+- **First mail after an empty inbox skipped**: `lastUid == 0` doubled as the first-run marker. Fixed in the self-review commit, along with a 2 s hand-off timeout that could drop an already-read payment, and one redraw per pulled order.
+- **5.2 KB orders buffer on the loop task's 8 KB stack**: now a shared 1.4 KB static buffer.
 
 How each fix was verified, without hardware:
 - **Real ESP32 builds:** arduino-cli for core 2.0.17 and 3.x on every push (CI).
 - **Desktop builds:** against stubs with `-Wall -Wextra`, for both cores.
-- **Unit tests:** 145 logic tests (amount parsing on real-world subject formats, MIME, words, IMAP response parsing, templates, status maps) and 66 firmware tests (orders, NVS, token, sales, Connect) against the real ArduinoJson.
+- **Unit tests:** 145 logic tests (amount parsing on real-world subject formats, MIME, words, IMAP response parsing, templates, status maps) and 83 firmware tests against the real ArduinoJson. The firmware tests cover orders, NVS, token, sales, Connect, and `imapPoll()` against a scripted IMAP server: batch, filter error, stalled server, empty inbox.
 - **Pixel checks:** every full screen render is pixel-identical to before (except the version label), and every partial redraw matches a full redraw.
 - **Byte checks:** the streamed dashboard HTML is byte-identical to the old one-String page.
