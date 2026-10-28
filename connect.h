@@ -180,7 +180,7 @@ bool connectDeliverDue(const CxCfg& c) {
     for (int i = 0; i < CX_QUEUE; i++)
       if (cxQueue[i].used && (int32_t)(now - cxQueue[i].dueAt) >= 0) { slot = i; break; }
     if (slot < 0) return false;
-    if (c.hook.isEmpty()) { cxQueue[slot].used = false; return false; }   // URL removed: drop
+    if (c.hook.isEmpty()) { cxQueue[slot].used = false; cxQueue[slot].body = String(); return false; }   // URL removed
     event = cxQueue[slot].event; id = cxQueue[slot].id; body = cxQueue[slot].body; ts = cxQueue[slot].ts;
   }
 
@@ -207,7 +207,7 @@ bool connectDeliverDue(const CxCfg& c) {
     CxLockGuard l;
     CxHook& h = cxQueue[slot];
     if (h.used && h.id == id) {                     // still ours (not replaced while we sent it)
-      if (ok || !retry || h.tries >= 4) h.used = false;
+      if (ok || !retry || h.tries >= 4) { h.used = false; h.body = String(); }   // free the body now
       else { h.dueAt = millis() + BACKOFF_MS[h.tries]; h.tries++; }
       if (!ok && retry && h.used) what += ", retry " + String(h.tries) + "/4";
       else if (!ok) what += ", dropped";

@@ -243,8 +243,116 @@ static void connect_pull_tests() {
   EXPECT(connectPull(testCx()), "204 is fine");
 }
 
+// ---------- IMAP against a scripted server ----------
+struct FakeImap {
+  FakeSocket sock;
+  uint32_t validity = 594, next = 120;
+  std::string search = "* SEARCH";
+  std::vector<std::string> fetch;      // lines of the FETCH response
+  bool silentAt = false; std::string silentCmd;   // stop answering this command
+  std::string searchReply = "OK";
+  std::string loginReply = "OK";
+  FakeImap() {
+    sock.onConnect = [](FakeSocket& f) { f.send("* OK Gimap ready"); };
+    sock.onLine = [this](const std::string& l, FakeSocket& f) {
+      std::string tag = l.substr(0, l.find(' ')), cmd = l.substr(l.find(' ') + 1);
+      if (silentAt && cmd.compare(0, silentCmd.size(), silentCmd) == 0) return;
+      if (cmd.compare(0, 5, "LOGIN") == 0) { f.send(tag + " " + loginReply + " done"); return; }
+      if (cmd.compare(0, 6, "SELECT") == 0) {
+        f.send("* 5 EXISTS");
+        f.send("* OK [UIDVALIDITY " + std::to_string(validity) + "] UIDs valid.");
+        f.send("* OK [UIDNEXT " + std::to_string(next) + "] Predicted next UID.");
+        f.send(tag + " OK [READ-WRITE] INBOX selected."); return;
+      }
+      if (cmd.compare(0, 10, "UID SEARCH") == 0) {
+        if (searchReply == "OK") f.send(search);
+        f.send(tag + " " + searchReply + (searchReply == "OK" ? " SEARCH completed" : " Could not parse command"));
+        return;
+      }
+      if (cmd.compare(0, 9, "UID FETCH") == 0) { for (auto& x : fetch) f.send(x); f.send(tag + " OK Success"); return; }
+      f.send(tag + " OK Success");
+    };
+  }
+  bool sent(const std::string& prefix) const {
+    for (auto& l : sock.received) if (l.find(prefix) != std::string::npos) return true;
+    return false;
+  }
+};
+
+static void imap_tests() {
+  ImapCfg c = {"shop@gmail.com", "ab\"cd efgh", "UNSEEN", "Rs", true};
+  {   // first run: start at UIDNEXT, no backlog
+    FakeImap srv; fakeSocket() = &srv.sock;
+    ImapState st = {0, 0}; ImapResult r;
+    EXPECT(imapPoll(c, st, r, 0) && st.uidValidity == 594 && st.lastUid == 119 && r.count == 0, "first run baseline");
+    EXPECT(!srv.sent("SEARCH"), "no search on first run");
+    EXPECT(srv.sent("LOGIN \"shop@gmail.com\" \"ab\\\"cd efgh\""), "login escaped");
+  }
+  {   // empty inbox at setup (UIDNEXT 1), first mail later must still be read
+    FakeImap srv; srv.next = 1; fakeSocket() = &srv.sock;
+    ImapState st = {0, 0}; ImapResult r;
+    imapPoll(c, st, r, 0);
+    EXPECT(st.lastUid == 0 && st.uidValidity == 594, "empty inbox baseline");
+    FakeImap srv2; srv2.next = 2; srv2.search = "* SEARCH 1"; fakeSocket() = &srv2.sock;
+    srv2.fetch = {"* 1 FETCH (UID 1 INTERNALDATE \"28-Oct-2026 08:00:00 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {40}",
+                  "Subject: Rs 50 received", "From: eSewa <a@esewa.com.np>", "", ")"};
+    ImapResult r2;
+    EXPECT(imapPoll(c, st, r2, 0) && r2.count == 1 && st.lastUid == 1, "first mail after an empty inbox is read");
+  }
+  {   // a batch: two payments (one old), one newsletter
+    FakeImap srv; fakeSocket() = &srv.sock;
+    srv.search = "* SEARCH 101 102 103";
+    srv.fetch = {
+      "* 1 FETCH (UID 101 INTERNALDATE \"28-Oct-2026 08:00:00 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {80}",
+      "Subject: =?UTF-8?B?UnMgMSw1MDAuNTAgcmVjZWl2ZWQ=?=", "From: \"eSewa\" <noreply@esewa.com.np>", "", ")",
+      "* 2 FETCH (UID 102 INTERNALDATE \"28-Oct-2026 08:01:00 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {60}",
+      "Subject: Weekend sale: 50% off everything", "From: Shop <news@example.com>", "", ")",
+      "* 3 FETCH (UID 103 INTERNALDATE \"27-Oct-2026 08:00:00 +0000\" BODY[HEADER.FIELDS (SUBJECT FROM)] {60}",
+      "Subject: NPR 700 credited", "From: alerts@fonepay.com", "", ")"};
+    ImapState st = {594, 100}; ImapResult r;
+    uint32_t now = 1793174700;   // 28 Oct 2026 08:05 UTC
+    EXPECT(imapPoll(c, st, r, now), "batch ok: %s", r.status.c_str());
+    EXPECT(r.count == 2 && r.pays[0].paisa == 150050 && r.pays[0].note == "eSewa" && !r.pays[0].stale, "payment 1");
+    EXPECT(r.pays[1].paisa == 70000 && r.pays[1].note == "fonepay.com" && r.pays[1].stale, "payment 2 is a day old -> stale");
+    EXPECT(srv.sent("UID SEARCH UID 101:* UNSEEN"), "search from lastUid+1 with the filter");
+    EXPECT(srv.sent("UID STORE 101,103 +FLAGS.SILENT (\\Seen)") && !srv.sent("102 +FLAGS"), "only payments marked read");
+    EXPECT(st.lastUid == 103, "position advanced past the newsletter too");
+  }
+  {   // more than a batch waiting
+    FakeImap srv; fakeSocket() = &srv.sock;
+    srv.search = "* SEARCH 101 102 103 104 105 106 107 108 109 110 111 112";
+    ImapState st = {594, 100}; ImapResult r;
+    imapPoll(c, st, r, 0);
+    EXPECT(r.more && st.lastUid == 110 && srv.sent("UID FETCH 101,102,103,104,105,106,107,108,109,110 "), "batch of 10, more=1");
+  }
+  {   // a bad filter is reported, never hangs, position unchanged
+    FakeImap srv; srv.searchReply = "BAD"; fakeSocket() = &srv.sock;
+    ImapState st = {594, 100}; ImapResult r;
+    EXPECT(!imapPoll(c, st, r, 0) && st.lastUid == 100 && r.status.startsWith("Search filter rejected"), "BAD search: %s", r.status.c_str());
+  }
+  {   // login rejected
+    FakeImap srv; srv.loginReply = "NO"; fakeSocket() = &srv.sock;
+    ImapState st = {594, 100}; ImapResult r;
+    EXPECT(!imapPoll(c, st, r, 0) && r.status.startsWith("Login rejected"), "login NO");
+  }
+  {   // server stops answering: the session gives up within its budget
+    FakeImap srv; srv.silentAt = true; srv.silentCmd = "SELECT"; fakeSocket() = &srv.sock;
+    ImapState st = {594, 100}; ImapResult r;
+    uint32_t t0 = millis();
+    EXPECT(!imapPoll(c, st, r, 0), "stalled server fails");
+    uint32_t took = millis() - t0;
+    EXPECT(took <= IMAP_SESSION_MS && took >= IMAP_CMD_MS, "gave up after %u ms (cmd %u, session %u)", took, IMAP_CMD_MS, IMAP_SESSION_MS);
+  }
+  {   // no network at all
+    fakeSocket() = nullptr;
+    ImapState st = {594, 100}; ImapResult r;
+    EXPECT(!imapPoll(c, st, r, 0) && r.status.startsWith("Can't reach"), "connect failure");
+  }
+}
+
 int main() {
   setup();
+  imap_tests();
   connect_emit_tests();
   connect_delivery_tests();
   connect_pull_tests();

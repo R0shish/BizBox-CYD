@@ -90,8 +90,10 @@ inline String operator+(const String& a, const char* b) { return String(a.s + b)
 inline String operator+(const char* a, const String& b) { return String(std::string(a) + b.s); }
 inline String operator+(const String& a, char c) { return String(a.s + c); }
 
-inline uint32_t millis() { return 0; }
-inline void delay(uint32_t) {}
+// Simulated clock: only delay() moves it, so timeouts terminate in tests
+inline uint32_t& simClock() { static uint32_t t = 0; return t; }
+inline uint32_t millis() { return simClock(); }
+inline void delay(uint32_t ms) { simClock() += ms; }
 
 // Time: fixed to 13:49:02 so previews are stable
 inline bool getLocalTime(struct tm* t, uint32_t = 0) {

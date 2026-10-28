@@ -12,9 +12,12 @@ void drawScreen() {
   ui_drawScreen();
 }
 
-// Content area + nav only (status bar stays): screen switches and data changes
+// Content area + nav only (status bar stays): screen switches and data changes.
+// While a batch of network events is applied, redraws are folded into one.
+bool redrawBatch = false, redrawPending = false;
 void redrawContent() {
   if (portalMode) return;
+  if (redrawBatch) { redrawPending = true; return; }
   ui_redrawContent();
 }
 
@@ -216,6 +219,7 @@ void handleAnnouncements() {
 // ==========================================
 void handleNetEvents() {
   NetEvent e;
+  redrawBatch = true;
   while (netQueue && xQueueReceive(netQueue, &e, 0) == pdTRUE) {
     switch (e.type) {
       case EV_PAYMENT:
@@ -233,4 +237,6 @@ void handleNetEvents() {
       default: break;
     }
   }
+  redrawBatch = false;
+  if (redrawPending) { redrawPending = false; redrawContent(); }
 }

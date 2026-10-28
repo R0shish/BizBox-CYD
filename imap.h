@@ -185,8 +185,10 @@ bool imapPoll(const ImapCfg& c, ImapState& st, ImapResult& r, uint32_t nowEpoch)
     r.status = "Can't open INBOX";
     return false;
   }
-  // First run (or the mailbox was rebuilt): start from now, never replay old mail
-  if (sel.validity != st.uidValidity || st.lastUid == 0) {
+  // First run (stored validity is 0) or the mailbox was rebuilt: start from
+  // now, never replay old mail. (Not keyed on lastUid: an empty inbox has
+  // UIDNEXT 1, so lastUid stays 0 until the first mail arrives.)
+  if (sel.validity != st.uidValidity) {
     st.uidValidity = sel.validity;
     st.lastUid = sel.next - 1;
     s.cmd("LOGOUT");

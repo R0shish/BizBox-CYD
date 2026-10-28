@@ -85,7 +85,9 @@ static bool netPostPayment(uint8_t source, uint32_t paisa, const String& note, c
   e.stale = stale;
   netCopy(e.note, sizeof e.note, note);
   netCopy(e.text, sizeof e.text, title);
-  return xQueueSend(netQueue, &e, pdMS_TO_TICKS(2000)) == pdTRUE;
+  // The mail is already marked read, so wait for the loop rather than drop it
+  // (it only stalls while an announcement plays; the queue holds 2 batches)
+  return xQueueSend(netQueue, &e, pdMS_TO_TICKS(30000)) == pdTRUE;
 }
 
 // ---------- Payment sources ----------
