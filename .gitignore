@@ -1,0 +1,12 @@
+# Local backups (the history lives in git now)
+*.bak
+
+# Build output
+build/
+*.bin
+*.elf
+
+# OS / editor
+.DS_Store
+.vscode/
+__pycache__/
