@@ -17,7 +17,7 @@ struct JsonArray {
   template <class T> bool add(const T&) { return true; }
   template <class T> T add() { return T(); }
 };
-struct JsonDocument { JsonVariant operator[](const char*) { return {}; } };
+struct JsonDocument { JsonVariant operator[](const char*) { return {}; } template <class T> bool is() const { return false; } };
 struct DeserializationError { operator bool() const { return false; } };
 inline DeserializationError deserializeJson(JsonDocument&, const String&) { return {}; }
 inline size_t serializeJson(const JsonDocument&, String&) { return 0; }

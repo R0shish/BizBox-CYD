@@ -244,7 +244,7 @@ void handleRoot() {
        "<label>Amount (" + esc(cfg.currency) + ")</label><input id=p_amt type=number inputmode=numeric placeholder='450'>"
        "<button class=btn onclick='addOrder()'>Send to screen</button></div>"
 
-       "<div class=grid2><a class='btn cyan' href='/test?amt=100'>Test voice</a>"
+       "<div class=grid2><button class='btn cyan' onclick=\"api('/api/test',{method:'POST'}).then(()=>toast('TEST PLAYING'))\">Test voice</button>"
        "<button class='btn danger' onclick=\"if(confirm('Reset today to 0?'))act('/api/reset','TODAY RESET')\">Reset today</button></div>"
        "</section>";
 
@@ -391,11 +391,44 @@ void handleSave() {
   }
 }
 
+// Old bookmark / link: plays a TEST announcement (never booked as a sale)
 void handleTest() {
   if (!authed()) return;
-  pendingAmt = max(1, (int)server.arg("amt").toInt());
+  uint32_t p = 0;
+  if (!parseMoney(server.arg("amt"), p)) p = 10000;
+  queueAnnouncement(p, "Test", true);
   server.sendHeader("Location", "/");
   server.send(302);
+}
+
+// Amount from JSON: a number (500, 499.5) or a numeric string ("1,500.50")
+bool jsonMoney(JsonVariant v, uint32_t& paisa) {
+  if (v.is<const char*>()) return parseMoney(v.as<String>(), paisa);
+  if (v.is<double>() || v.is<long>()) return moneyFromDouble(v.as<double>(), paisa);
+  return false;
+}
+
+void apiError(int code, const char* msg) {
+  server.send(code, "application/json", String("{\"error\":\"") + msg + "\"}");
+}
+
+// Parses the request body as JSON; answers 400 itself when it isn't
+bool apiBody(JsonDocument& doc) {
+  if (deserializeJson(doc, server.arg("plain")) || !doc.is<JsonObject>()) {
+    apiError(400, "body must be a JSON object");
+    return false;
+  }
+  return true;
+}
+
+void handleApiTest() {
+  if (!apiAuthed()) return;
+  JsonDocument doc;
+  uint32_t p = 10000;
+  if (server.arg("plain").length() && !deserializeJson(doc, server.arg("plain")) && !doc["amount"].isNull() &&
+      !jsonMoney(doc["amount"], p)) { apiError(400, "amount must be between 0 and 1 crore"); return; }
+  queueAnnouncement(p, "Test", true);
+  server.send(200, "application/json", "{\"status\":\"ok\",\"test\":true}");
 }
 
 void handleApiState() {
@@ -430,34 +463,38 @@ void handleApiState() {
 
 void handleApiOrder() {
   if (!apiAuthed()) return;
-  if (server.method() == HTTP_POST) {
-    JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
-    String title = doc["title"] | "New Order";
-    uint32_t amt = (doc["amount"] | 0) * 100;
-    String status = doc["status"] | "NEW";
-    addOrder(title, amt, status);
-    server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
-  } else {
-    server.send(405, "text/plain", "Method Not Allowed");
+  JsonDocument doc;
+  if (!apiBody(doc)) return;
+  String title = doc["title"] | "New Order";
+  title.trim();
+  if (!title.length()) title = "New Order";
+  uint32_t amt = 0;
+  if (!doc["amount"].isNull() && !jsonMoney(doc["amount"], amt) && doc["amount"].as<double>() != 0) {
+    apiError(400, "amount must be between 0 and 1 crore");
+    return;
   }
+  String status = doc["status"] | "NEW";
+  status.toUpperCase();
+  if (status != "NEW" && status != "PREP" && status != "READY" && status != "PAID") {
+    apiError(400, "status must be NEW, PREP, READY or PAID");
+    return;
+  }
+  addOrder(utf8Cut(title, 40), amt, status);
+  server.send(200, "application/json", "{\"status\":\"ok\",\"orderId\":" + String(nextOrderId - 1) + "}");
 }
 
 void handleApiPayment() {
   if (!apiAuthed()) return;
-  if (server.method() == HTTP_POST) {
-    JsonDocument doc;
-    deserializeJson(doc, server.arg("plain"));
-    uint32_t amt = (doc["amount"] | 0) * 100;
-    String note = doc["note"] | "Instant Payment";
-    if (amt > 0) {
-      addOrder(note, amt, "PAID");
-      announce(amt, note);
-    }
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-  } else {
-    server.send(405, "text/plain", "Method Not Allowed");
-  }
+  JsonDocument doc;
+  if (!apiBody(doc)) return;
+  uint32_t amt = 0;
+  if (!jsonMoney(doc["amount"], amt)) { apiError(400, "amount must be between 0 and 1 crore"); return; }
+  String note = doc["note"] | "Instant Payment";
+  note = utf8Cut(note, 40);
+  addOrder(note, amt, "PAID");
+  bool queued = queueAnnouncement(amt, note);
+  // Answer now: the announcement plays from the loop, so callers never time out and retry
+  server.send(200, "application/json", String("{\"status\":\"ok\",\"announced\":") + (queued ? "true" : "false") + "}");
 }
 
 void handleApiReset() {

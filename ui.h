@@ -499,21 +499,22 @@ void ui_drawScreen() {
 }
 
 // ---------- Payment received takeover ----------
-void ui_paymentAlert(uint32_t paisa, const String& note) {
+void ui_paymentAlert(uint32_t paisa, const String& note, bool test = false) {
+  const uint16_t accent = test ? UI_YELLOW : UI_GREEN;
   tft.fillScreen(UI_BG);
   ui_dotgrid(0, 0, UI_W, 92);   // grid above and below the hero, none behind it
   ui_dotgrid(0, 186, UI_W, 228);
 
   // Badge grows in
   for (int r = 6; r <= 24; r += 3) {
-    tft.fillSmoothCircle(160, 58, r, UI_GREEN, UI_BG);
+    tft.fillSmoothCircle(160, 58, r, accent, UI_BG);
     delay(16);
   }
-  tft.drawWideLine(150, 59, 157, 66, 4, UI_BG, UI_GREEN);
+  tft.drawWideLine(150, 59, 157, 66, 4, UI_BG, accent);
   delay(40);
-  tft.drawWideLine(157, 66, 171, 51, 4, UI_BG, UI_GREEN);
+  tft.drawWideLine(157, 66, 171, 51, 4, UI_BG, accent);
 
-  ui_text("PAYMENT RECEIVED", 160, 104, FT_LABEL, UI_GREEN, UI_BG, AL_C);
+  ui_text(test ? "TEST · NOT A REAL PAYMENT" : "PAYMENT RECEIVED", 160, 104, FT_LABEL, accent, UI_BG, AL_C);
 
   // Amount: currency + big digits, centred as one group
   String digits = fmtPaisa(paisa, fmtAmt);
@@ -545,7 +546,8 @@ void ui_paymentAlert(uint32_t paisa, const String& note) {
   String meta = note.length() ? ui_fit(note, FT_MONO, 200) + " · " : String("");
   meta += ui_clockText();
   ui_text(meta, 160, 200, FT_MONO, UI_MUTED, UI_BG, AL_C);
-  ui_strip(0, 232, UI_W, 8);
+  if (test) tft.fillRect(0, 232, UI_W, 8, UI_YELLOW);
+  else ui_strip(0, 232, UI_W, 8);
 }
 
 // ---------- Boot / portal / reset ----------

@@ -53,5 +53,7 @@ int main(int argc, char** argv) {
   snprintf(p, sizeof p, "%s/11_board_closed.ppm", out); tft.savePPM(p);
   ui_paymentAlert(12500000, "Fonepay transfer from Sita");
   snprintf(p, sizeof p, "%s/12_payment_big.ppm", out); tft.savePPM(p);
+  ui_paymentAlert(49950, "Test", true);
+  snprintf(p, sizeof p, "%s/13_payment_test.ppm", out); tft.savePPM(p);
   return 0;
 }

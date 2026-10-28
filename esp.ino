@@ -164,14 +164,13 @@ bool portalMode = false;
 bool timeSynced = false;
 ImapState imapState = {0, 0};   // where the IMAP reader is in the mailbox (NVS guidv/guid)
 String appsScriptSince = "0";   // Apps Script cursor (NVS since)
-volatile uint32_t pendingAmt = 0;
 volatile bool pendingRefresh = false;
 uint32_t lastUserActivity = 0;
 uint32_t lastCycleTick = 0;
 
 // Forward declarations
 void drawScreen();
-void announce(uint32_t paisa, const String& note = "");
+void announce(uint32_t paisa, const String& note = "", bool test = false);
 void setScreen(int s);
 void setBacklight(int percent);
 
@@ -385,23 +384,49 @@ void testVoice() {
   playVoice("volume " + String(cfg.volume) + " percent ready");
 }
 
-void announce(uint32_t paisa, const String& note) {
-  ui_paymentAlert(paisa, note);
+// Shows the takeover and speaks the amount. Test announcements look and sound
+// different ("TEST" on screen, "test" spoken) and are never booked as sales.
+void announce(uint32_t paisa, const String& note, bool test) {
+  ui_paymentAlert(paisa, note, test);
 
-  String phrase;
+  String phrase = test ? "test, " : "";
   String said = sayAmount(paisa);
   if (cfg.voiceMode == 0) {
-    phrase = (paisa >= 100 ? "rupees " : "") + said + " received";
+    phrase += (paisa >= 100 ? "rupees " : "") + said + " received";
   } else if (cfg.voiceMode == 1) {
-    phrase = "payment of " + said + " confirmed, thank you";
+    phrase += "payment of " + said + " confirmed, thank you";
   } else {
-    phrase = said + " received";
+    phrase += said + " received";
   }
   playVoice(phrase);
 
   delay(1800);
   lastUserActivity = millis();
   drawScreen();
+}
+
+// Announcements wait here so whoever triggered them (an HTTP request, the
+// network task) never waits for the animation and speech.
+struct Announcement { uint32_t paisa; String note; bool test; };
+const int ANN_MAX = 6;
+Announcement annQ[ANN_MAX];
+int annHead = 0, annCount = 0;
+
+bool queueAnnouncement(uint32_t paisa, const String& note, bool test = false) {
+  if (annCount >= ANN_MAX) return false;
+  Announcement& a = annQ[(annHead + annCount++) % ANN_MAX];
+  a.paisa = paisa;
+  a.note = note;
+  a.test = test;
+  return true;
+}
+
+void handleAnnouncements() {
+  if (!annCount) return;
+  Announcement a = annQ[annHead];
+  annHead = (annHead + 1) % ANN_MAX;
+  annCount--;
+  announce(a.paisa, a.note, a.test);
 }
 
 // ==========================================
@@ -412,7 +437,7 @@ void handleNetEvents() {
   while (netQueue && xQueueReceive(netQueue, &e, 0) == pdTRUE) {
     if (e.type == EV_PAYMENT) {
       addOrder(e.title[0] ? String(e.title) : String("Payment"), e.paisa, "PAID");
-      if (!e.stale) announce(e.paisa, e.note);
+      if (!e.stale) queueAnnouncement(e.paisa, e.note);
     }
   }
 }
@@ -623,6 +648,7 @@ void setup() {
   server.on("/api/state", HTTP_GET, handleApiState);
   server.on("/api/order", HTTP_POST, handleApiOrder);
   server.on("/api/payment", HTTP_POST, handleApiPayment);
+  server.on("/api/test", HTTP_POST, handleApiTest);
   server.on("/api/reset", HTTP_ANY, handleApiReset);   // POST from the dashboard, GET kept for old scripts
   server.on("/api/clear", HTTP_ANY, handleApiClear);
 
@@ -655,14 +681,6 @@ void loop() {
   handleButton();
   handleTouch();
 
-  // Instant Voice Test Dispatcher
-  if (pendingAmt) {
-    uint32_t a = pendingAmt;
-    pendingAmt = 0;
-    addOrder("Voice test", a * 100, "PAID");
-    announce(a * 100, "Test");
-  }
-
   if (pendingRefresh) {
     pendingRefresh = false;
     drawScreen();
@@ -670,6 +688,7 @@ void loop() {
   }
 
   handleNetEvents();
+  handleAnnouncements();
 
   if (!portalMode) {
     // Live clock in the status bar
