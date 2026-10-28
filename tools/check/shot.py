@@ -14,11 +14,21 @@ async def main():
         await pg.route('**/fonts.googleapis.com/**',fonts)
         await pg.route('**/fonts.gstatic.com/**',lambda r: r.abort())
         await pg.goto('file://'+TMP+'/dash.html'); await pg.wait_for_timeout(400)
-        await pg.screenshot(path=OUT+'/web_today.png',full_page=True)
+        await pg.screenshot(path=TMP+'/web_today.png',full_page=True)
         for t,n in [('t-qr','web_qr'),('t-gmail','web_gmail'),('t-cx','web_connect'),('t-sys','web_sys')]:
             await pg.click(f'[data-t={t}]'); await pg.wait_for_timeout(150)
-            await pg.screenshot(path=OUT+'/'+n+'.png',full_page=True)
+            await pg.screenshot(path=TMP+'/'+n+'.png',full_page=True)
         await pg.goto('file://'+TMP+'/portal.html'); await pg.wait_for_timeout(300)
-        await pg.screenshot(path=OUT+'/web_portal.png',full_page=False)
+        await pg.screenshot(path=TMP+'/web_portal.png',full_page=True)
         await b.close()
 asyncio.run(main())
+
+# Contact sheet for the README: Today, Connect, setup mode (first ~1400 px of each)
+from PIL import Image
+panels=[Image.open(TMP+'/'+n+'.png') for n in ('web_today','web_connect','web_portal')]
+H=1415
+sheet=Image.new('RGB',(390*3+20,H),(13,31,51))
+for i,im in enumerate(panels):
+    im=im.resize((390,int(im.height*390/im.width)))
+    sheet.paste(im.crop((0,0,390,min(H,im.height))),(i*400,0))
+sheet.save(OUT+'/dashboard-previews.png')

@@ -29,7 +29,7 @@ h2{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:6px 0 14px}
 .pill.open{color:var(--green)}.pill.closed{color:var(--red)}
 .tabs{position:sticky;top:0;z-index:9;background:rgba(13,31,51,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:18px}
 .tabs .wrap{display:flex;overflow-x:auto;scrollbar-width:none}
-.tab{flex:1;min-width:72px;background:none;border:0;color:var(--muted);padding:10px 4px 9px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;border-top:2px solid transparent;line-height:1.5}
+.tab{flex:1;min-width:54px;background:none;border:0;color:var(--muted);padding:10px 2px 9px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;border-top:2px solid transparent;line-height:1.5}
 .tab i{display:block;font-style:normal;color:var(--dim)}
 .tab.on{color:var(--ink);border-top-color:var(--cyan)}.tab.on i{color:var(--cyan)}
 .pane{display:none}.pane.on{display:block}
@@ -107,6 +107,7 @@ const mx=Math.max(1,...s.hourly);$('#bars').innerHTML=s.hourly.map((v,h)=>'<div 
 $('#orders').innerHTML=s.orders.length?s.orders.map(o=>'<div class="row"><span class="id">#'+o.id+'</span><span class="t">'+esc(o.title)+'</span><span class="a">'+(o.amount?amt(o.amount):'-')+'</span><span class="pill s-'+o.status+'">'+o.status+'</span></div>').join(''):'<p class="empty">Nothing queued.</p>';}
 function refresh(){api('/api/state').then(r=>r.json()).then(render).catch(()=>{})}
 try{const t=localStorage.getItem('tab');if(t&&$('#'+t)&&!document.body.dataset.portal){tab(t,$('[data-t='+t+']'))}}catch(e){}
+try{$('.tab.on').scrollIntoView({inline:'nearest',block:'nearest'})}catch(e){}
 try{const sel=$('#cxpreset');PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;sel.appendChild(o)})}catch(e){}
 if(!document.body.dataset.portal){refresh();setInterval(()=>{if(!document.hidden)refresh()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()})}
 )JS";

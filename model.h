@@ -92,4 +92,4 @@ const char* const CX_DEFAULT_MAP =
 
 #define AP_NAME   "BizBox-Setup"
 #define MDNS_NAME "bizbox"
-#define FW_VERSION "3.0"
+#define FW_VERSION "3.1"
