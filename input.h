@@ -32,6 +32,8 @@ void handleTap(int x, int y) {
       setBacklight(cfg.brightness); saveCfg(); ui_settingValue(1, true);
     } else if (hit(x, y, SET_TEST_X, SET_TEST_Y, SET_TEST_W, SET_TEST_H)) {
       testVoice();
+      displayReassert();
+      drawScreen();
     }
   } else if (currentScreen == SCREEN_STATS) {
     if (x >= 200 && y >= 36 && y <= 76) { // store switch
@@ -72,9 +74,19 @@ void handleTouch() {
   bool isDown = touch.getScreenTouch(x, y, cfg.swapTouch, cfg.invertTouchX, cfg.invertTouchY);
 
   static bool wasDown = false;
+  static bool stuck = false;
   static int startX = 0, startY = 0;
   static int lastX = 0, lastY = 0;
   static uint32_t downTime = 0;
+
+  // A touch controller that reads "pressed" for ages is glitched (a press is
+  // only acted on at release, so this would swallow every tap). Drop that
+  // press and wait for a real release.
+  if (isDown && wasDown && millis() - downTime > 5000) { wasDown = false; stuck = true; }
+  if (stuck) {
+    if (!isDown) stuck = false;
+    return;
+  }
 
   if (isDown) {
     if (!wasDown) {
