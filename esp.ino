@@ -68,6 +68,10 @@ void setup() {
   // Initialize Touch Driver (GPIO 25 is clean and unencumbered!)
   touch.begin();
 
+  // Speaker: bring the DAC to its rest level now, slowly, so speech never
+  // starts with a thump (see speaker.h)
+  spk::park();
+
   webBegin();
 
   if (cfg.ssid.isEmpty() || !connectWifi()) {

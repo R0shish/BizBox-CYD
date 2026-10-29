@@ -2,7 +2,7 @@
 // sales arithmetic). Built and run by tools/check.sh.
 #include "Arduino.h"
 #include <vector>
-uint32_t g_dacReg = 0, g_dacWrites = 0; hw_timer_t g_timer; std::vector<uint8_t> g_samSamples;
+uint32_t g_dacReg = 0, g_dacWrites = 0; hw_timer_t g_timer; std::vector<uint8_t> g_samSamples, g_dacLog;
 SerialStub Serial; EspStub ESP;
 #include "WiFi.h"
 WiFiClass WiFi;

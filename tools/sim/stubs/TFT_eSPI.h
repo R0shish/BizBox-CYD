@@ -28,6 +28,7 @@ class TFT_eSPI {
   TFT_eSPI() : fb(320 * 240, 0) {}
 
   void init() {}
+  void writecommand(uint8_t) {} void writedata(uint8_t) {}
   void setRotation(uint8_t) {}
   // ---------- pixels ----------
   void drawPixel(int32_t x, int32_t y, uint32_t c) {
