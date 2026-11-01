@@ -20,7 +20,9 @@ inline void configTzTime(const char*, const char*, const char* = nullptr, const 
 struct SerialStub { void begin(int) {} void println(const String&) {} void println(const char*) {} void print(const String&) {}
   void printf(const char*, ...) {} };
 extern SerialStub Serial;
-struct EspStub { void restart() {} };
+// Cycle counter advances on every read (1 us at 240 MHz) so pacing loops end
+struct EspStub { void restart() {} uint32_t cycles = 0; uint32_t getCycleCount() { return cycles += 240; } };
+inline uint32_t getCpuFrequencyMhz() { return 240; }
 extern EspStub ESP;
 #define IRAM_ATTR
 struct hw_timer_t { void (*fn)(); uint64_t alarm; };

@@ -148,18 +148,33 @@ void applyExternalOrder(const NetEvent& e) {
 // ==========================================
 // Voice + announcements
 // ==========================================
-// ---------- Audio Gain Scaler (Prevents 3.3V Sag & Display Flicker) ----------
-float getAudioGain() {
-  return constrain(((float)cfg.volume / 100.0f) * 0.40f, 0.02f, 0.45f);
-}
-
 // ---------- Voice: SAM speech straight to the DAC on GPIO26 (see speaker.h) ----------
 void playVoice(const String& phrase) {
   CYDSpeaker out;
-  out.SetGain(getAudioGain());
+  out.SetGain(voiceGainForVolume(cfg.volume));
   ESP8266SAM sam;
+  // SAM's settings are global and stick between calls, so set all of them.
+  // A little slower than SAM's default (72) is easier to follow at a counter.
+  sam.SetSpeed(84);
+  sam.SetPitch(64);
+  sam.SetMouth(128);
+  sam.SetThroat(128);
   sam.Say(&out, phrase.c_str());
   out.stop();
+}
+
+// The speaker amp, the backlight and the touch controller share one 3.3 V
+// regulator with the panel (see speaker.h). If a loud moment ever dips it
+// far enough to reset the ILI9341, the panel shows garbage and ignores the
+// redraw. Re-sending what it needs to show pixels (sleep out, 16-bit
+// colour, rotation, display on) recovers it, and changes nothing otherwise.
+void displayReassert() {
+  tft.writecommand(0x11);      // SLPOUT
+  delay(5);
+  tft.writecommand(0x3A);      // COLMOD
+  tft.writedata(0x55);         // 16 bits per pixel
+  tft.setRotation(1);          // MADCTL
+  tft.writecommand(0x29);      // DISPON
 }
 
 void testVoice() {
@@ -183,6 +198,7 @@ void announce(uint32_t paisa, const String& note, bool test) {
   playVoice(phrase);
 
   delay(1800);
+  displayReassert();
   lastUserActivity = millis();
   drawScreen();
 }

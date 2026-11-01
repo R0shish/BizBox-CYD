@@ -5,7 +5,7 @@ Business-hub / payment soundbox firmware for the ESP32 Cheap Yellow Display (ESP
 ## Hardware (CYD)
 - Display ILI9341 320×240 via TFT_eSPI, rotation 1. Backlight PWM on GPIO21.
 - Touch XPT2046 is bit-banged in `CYDTouch` (MOSI 32, MISO 39, CLK 25, CS 33, IRQ 36). GPIO25 is the touch clock: never drive it from audio code.
-- Speaker amp is on GPIO26 = ESP32 DAC channel 2. `speaker.h` writes samples into the DAC register from a 22.05 kHz hardware timer. Do NOT go back to `AudioOutputI2S(…, INTERNAL_DAC)`: ESP8266Audio 2.x ignores that mode and puts the I2S clock on GPIO26 (distorted voice), and `AudioOutputInternalDAC` outputs mono on GPIO25.
+- Speaker amp (SC8002B) is on GPIO26 = ESP32 DAC channel 2, AC-coupled (4.7k+47k, 0.39 µF, 22k), and powered from the same 3.3 V regulator as the backlight and the touch controller. `speaker.h` writes SAM's samples straight into the DAC register, paced by the CPU cycle counter: no timer, no ISR, nothing to wait on, 12 s cap. The DAC is parked at mid-scale once at boot (slow ramp) and never stepped again: steps thump the speaker and sag the shared rail (flicker). Volume maps to at most 60 % of full scale (`voiceGainForVolume`). Do NOT go back to `AudioOutputI2S(…, INTERNAL_DAC)`: ESP8266Audio 2.x ignores that mode and puts the I2S clock on GPIO26 (distorted voice), and `AudioOutputInternalDAC` outputs mono on GPIO25.
 - BOOT button (GPIO0) held 3.5 s = factory reset.
 
 ## Two tasks
